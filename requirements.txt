@@ -1,0 +1,6 @@
+# Local editable install for the htextract / harbor-trajectory-extractor CLIs.
+-e .
+
+# Runtime dependencies, mirrored from pyproject.toml for plain pip workflows.
+pydantic>=2
+PyYAML>=6

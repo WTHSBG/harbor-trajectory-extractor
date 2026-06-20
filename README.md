@@ -1,5 +1,7 @@
 # harbor-trajectory-extractor
 
+[中文说明](README.zh-CN.md)
+
 Extract a completed agent session into Harbor's ATIF `trajectory.json` format.
 
 Current supported agents are `claude-code`, `codex`, and `opencode`. The input

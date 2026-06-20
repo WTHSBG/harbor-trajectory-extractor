@@ -10,8 +10,8 @@ shell out to the `harbor` CLI, and does not require Harbor to be installed.
 ## Install
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv src/harbor_trajectory_extractor/.venv
+source src/harbor_trajectory_extractor/.venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
@@ -19,15 +19,15 @@ On machines where `python -m venv` / `ensurepip` is broken, create the venv with
 uv instead:
 
 ```bash
-uv venv --python 3.13 .venv
-uv pip install --python .venv/bin/python -r requirements.txt
-source .venv/bin/activate
+uv venv --python 3.13 src/harbor_trajectory_extractor/.venv
+uv pip install --python src/harbor_trajectory_extractor/.venv/bin/python -r requirements.txt
+source src/harbor_trajectory_extractor/.venv/bin/activate
 ```
 
 Run without activating:
 
 ```bash
-.venv/bin/htextract --help
+src/harbor_trajectory_extractor/.venv/bin/htextract --help
 ```
 
 Or run from source without installing:

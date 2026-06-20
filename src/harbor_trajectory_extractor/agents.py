@@ -51,9 +51,10 @@ ALIASES: dict[str, str] = {
 @dataclass(frozen=True)
 class AgentInput:
     agent: str
-    primary_files: tuple[str, ...]
+    required_files: tuple[str, ...]
     notes: str
     run_requirements: tuple[str, ...] = ()
+    optional_files: tuple[str, ...] = ()
 
 
 AGENT_INPUTS: dict[str, AgentInput] = {
@@ -62,7 +63,7 @@ AGENT_INPUTS: dict[str, AgentInput] = {
     "antigravity-cli": AgentInput("antigravity-cli", ("antigravity-cli.trajectory.jsonl", "antigravity-cli.trajectory.json"), "Gemini-compatible session export copied from the Antigravity CLI state directory."),
     "claude-code": AgentInput(
         "claude-code",
-        ("sessions/projects/*/*.jsonl", "claude-code.txt"),
+        ("sessions/projects/*/*.jsonl",),
         "Claude Code session JSONL is authoritative; claude-code.txt supplies final cost when present.",
         (
             "Set CLAUDE_CONFIG_DIR to the agent log sessions directory, e.g. <agent-dir>/sessions, before running claude.",
@@ -70,6 +71,7 @@ AGENT_INPUTS: dict[str, AgentInput] = {
             "Ensure the session JSONL lands under <agent-dir>/sessions/projects/<project>/*.jsonl; Harbor uses projects/-app inside the benchmark container.",
             "For reasoning_content, request thinking explicitly, e.g. --thinking enabled --thinking-display summarized --max-thinking-tokens <n>; otherwise the trajectory may have no reasoning blocks.",
         ),
+        optional_files=("claude-code.txt",),
     ),
     "cline-cli": AgentInput("cline-cli", ("trajectory.json",), "Cline CLI writes an ATIF trajectory during the run; this tool reuses it if present."),
     "codex": AgentInput(
@@ -140,8 +142,12 @@ def format_agent_workflow(agent: str) -> str | None:
         "Scenario 1: agent already ran",
         "  Required captured files under <agent-dir>:",
     ]
-    for pattern in info.primary_files:
+    for pattern in info.required_files:
         lines.append(f"    - {pattern}")
+    if info.optional_files:
+        lines.append("  Optional captured files under <agent-dir>:")
+        for pattern in info.optional_files:
+            lines.append(f"    - {pattern}")
     lines.extend(
         [
             "  Extract with:",

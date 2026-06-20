@@ -31,6 +31,19 @@ class CliTest(unittest.TestCase):
         self.assertIn("Missing --agent-dir", output)
         self.assertIn("htextract --describe-agent opencode", output)
 
+    def test_claude_code_describes_cost_log_as_optional(self) -> None:
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            exit_code = main(["--describe-agent", "claude-code"])
+
+        self.assertEqual(exit_code, 0)
+        output = stdout.getvalue()
+        self.assertIn("Required captured files under <agent-dir>:", output)
+        self.assertIn("Optional captured files under <agent-dir>:", output)
+        self.assertIn("sessions/projects/*/*.jsonl", output)
+        self.assertIn("claude-code.txt", output)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -150,8 +150,13 @@ Required:
 - Preserve session JSONL files under
   `<agent-dir>/sessions/projects/<project>/*.jsonl`. Harbor uses
   `projects/-app/*.jsonl` inside benchmark containers.
+
+Optional:
+
 - Run with `--output-format=stream-json --print` and tee stdout/stderr to
   `<agent-dir>/claude-code.txt` if you want the final `total_cost_usd`.
+  Claude Code does not create this file by itself; Harbor creates it by teeing
+  the stream-json stdout.
 
 Harbor's run shape is:
 

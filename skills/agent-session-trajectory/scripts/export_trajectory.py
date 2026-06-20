@@ -274,13 +274,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Generate Harbor ATIF trajectory for an agent session/source artifact. "
+            "Currently supported agents: codex, claude-code, opencode. "
             "Without --source, auto-detection is only available for codex, "
             "claude-code, and limited opencode captures."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=HELP_EPILOG,
     )
-    parser.add_argument("--agent", help="Agent name, for example codex, claude-code/cc, opencode, gemini-cli")
+    parser.add_argument("--agent", help="Agent name. Currently supported: codex, claude-code/cc, opencode")
     parser.add_argument("--source", type=Path, help="Exact session/source file or directory")
     parser.add_argument("--session", help="Session id or filename substring to select")
     parser.add_argument("--output", type=Path, help="Exact output path")
@@ -293,7 +294,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--instruction-path", type=Path, help="Instruction file for opencode streams that omit the prompt")
     parser.add_argument("--model", help="Model name when the source artifact omits it")
     parser.add_argument("--summary", action="store_true", help="Print htextract summary")
-    parser.add_argument("--list-agents", action="store_true", help="List htextract-supported agents")
+    parser.add_argument("--list-agents", action="store_true", help="List currently supported agents")
     parser.add_argument("--describe-agent", help="Describe the source/capture requirements for one agent")
     return parser.parse_args()
 

@@ -5,7 +5,11 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from harbor_trajectory_extractor.agents import describe_agent, normalize_agent_name
+from harbor_trajectory_extractor.agents import (
+    describe_agent,
+    normalize_agent_name,
+    supported_agent_names,
+)
 
 
 class SourcePreparationError(ValueError):
@@ -35,6 +39,11 @@ def prepare_source(agent: str, source: Path) -> PreparedSource:
         raise SourcePreparationError(f"--source does not exist: {source}")
 
     normalized = normalize_agent_name(agent)
+    if normalized not in supported_agent_names():
+        supported = ", ".join(supported_agent_names())
+        raise SourcePreparationError(
+            f"unsupported agent: {agent}. Currently supported agents: {supported}."
+        )
     if normalized == "claude-code":
         return _prepare_claude_code_source(source)
     if normalized == "opencode":

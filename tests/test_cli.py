@@ -38,6 +38,29 @@ class CliTest(unittest.TestCase):
         self.assertIn("--source <path>", output)
         self.assertIn("htextract --describe-agent opencode", output)
 
+    def test_list_agents_only_exposes_supported_extractors(self) -> None:
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            exit_code = main(["--list-agents"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            stdout.getvalue().splitlines(),
+            ["claude-code", "codex", "opencode"],
+        )
+
+    def test_unsupported_agent_is_explicitly_rejected(self) -> None:
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr):
+            exit_code = main(["--describe-agent", "gemini-cli"])
+
+        self.assertEqual(exit_code, 2)
+        output = stderr.getvalue()
+        self.assertIn("unsupported agent: gemini-cli", output)
+        self.assertIn("currently supported agents: claude-code, codex, opencode", output)
+
     def test_claude_code_describes_cost_log_as_optional(self) -> None:
         stdout = io.StringIO()
 

@@ -2,10 +2,10 @@
 
 Extract a completed agent session into Harbor's ATIF `trajectory.json` format.
 
-The input is the agent's own artifact from the run you just finished: a session
-JSONL file, a sessions directory, a JSON stdout capture, or an agent-native
-trajectory file. Harbor is only the output schema here; you do not need to run
-the agent through Harbor.
+Current supported agents are `claude-code`, `codex`, and `opencode`. The input
+is that agent's own artifact from the run you just finished: a session JSONL
+file, a sessions directory, or a JSON stdout capture. Harbor is only the output
+schema here; you do not need to run the agent through Harbor.
 
 The converter code is vendored from Harbor's installed-agent adapters and runs
 inside this project. It does not shell out to `harbor` and does not require
@@ -111,6 +111,14 @@ List supported agent names:
 htextract --list-agents
 ```
 
+This currently prints only:
+
+```text
+claude-code
+codex
+opencode
+```
+
 Show the source artifact and capture recipe for one agent:
 
 ```bash
@@ -142,9 +150,9 @@ The installer symlinks the skill by default, so future git pulls update the
 installed skill automatically. The skill helps another Codex session generate a
 Harbor ATIF trajectory from an agent session/source artifact.
 
-The skill's helper script can auto-select the newest local session for Codex,
-Claude Code, and limited OpenCode captures. For any exact session, or for any
-other supported agent, pass `--source`.
+The skill's helper script supports only Codex, Claude Code, and OpenCode. It can
+auto-select the newest local session for Codex, Claude Code, and limited
+OpenCode captures. For any exact session, pass `--source`.
 
 The default output filename is written in the current working directory:
 
@@ -159,17 +167,16 @@ agent-session-trajectory --agent codex --summary
 agent-session-trajectory --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
 agent-session-trajectory --agent claude-code --summary
 agent-session-trajectory --agent opencode --source ./opencode.jsonl --summary
-agent-session-trajectory --agent gemini-cli --source ./gemini-trajectory.jsonl --summary
 ```
 
 Use `--output-dir <dir>` to keep the generated default filename in another
 directory, or `--output <file>` to choose the exact path.
 
-To discover what a non-default agent needs:
+To discover what one of the supported agents needs:
 
 ```bash
 agent-session-trajectory --list-agents
-agent-session-trajectory --describe-agent gemini-cli
+agent-session-trajectory --describe-agent opencode
 ```
 
 When export is impossible, the script prints a `cannot export` message with the
@@ -306,13 +313,14 @@ The converter reads Codex session JSONL files. Captured stdout such as
 
 ## Other Agents
 
-Run `htextract --describe-agent <name>` for the exact native source to keep.
-Common examples:
+This tool currently supports only:
 
-- `gemini-cli` / `antigravity-cli`: Gemini trajectory JSONL or JSON export.
-- `swe-agent` / `mini-swe-agent`: native trajectory JSON files.
-- `openhands`: OpenHands session event files or completion JSON files.
-- Agents that already emit ATIF: pass their `trajectory.json` as `--source`.
+- `claude-code`
+- `codex`
+- `opencode`
+
+Other Harbor installed-agent adapters may exist in the vendored source tree,
+but they are not exposed or validated by this standalone extractor yet.
 
 Generated trajectories may include explicit `reasoning_content` when the source
 agent emitted it. Treat these files as sensitive artifacts.

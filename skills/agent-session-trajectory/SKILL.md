@@ -1,12 +1,16 @@
 ---
 name: agent-session-trajectory
-description: Generate a Harbor ATIF trajectory file from an agent session/source artifact. Use when the user asks to export, create, extract, or generate trajectory.json/ATIF trajectory data for any htextract-supported agent session, including Codex, Claude Code/claudecode/cc, OpenCode, or an explicitly provided source path.
+description: Generate a Harbor ATIF trajectory file from a supported agent session/source artifact. Use when the user asks to export, create, extract, or generate trajectory.json/ATIF trajectory data for Codex, Claude Code/claudecode/cc, or OpenCode sessions.
 ---
 
 # Agent Session Trajectory
 
-Use this skill to produce a Harbor-standard ATIF trajectory from an agent's
-native session/source artifact.
+Use this skill to produce a Harbor-standard ATIF trajectory from a supported
+agent's native session/source artifact. Current supported agents are:
+
+- `codex`
+- `claude-code` / `cc` / `claudecode`
+- `opencode`
 
 ## Quick Start
 
@@ -24,7 +28,7 @@ python3 "${CODEX_HOME:-$HOME/.codex}/skills/agent-session-trajectory/scripts/exp
 
 If `--source` is omitted, the script can auto-detect the newest local session
 for `codex`, `claude-code`, and limited `opencode` captures. For any specific
-session, or for other supported agents, pass `--source`.
+session, pass `--source`.
 
 The script writes this default filename to the current working directory:
 
@@ -40,7 +44,6 @@ agent-session-trajectory --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<d
 agent-session-trajectory --agent claude-code --summary
 agent-session-trajectory --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
 agent-session-trajectory --agent opencode --source ./opencode.jsonl --summary
-agent-session-trajectory --agent gemini-cli --source ./gemini-trajectory.jsonl --summary
 ```
 
 Use `--output-dir <dir>` to choose the directory. Use `--output <file>` to
@@ -48,7 +51,8 @@ choose the exact file path.
 
 ## Discoverability
 
-List supported agents:
+List supported agents. This should print only `claude-code`, `codex`, and
+`opencode`:
 
 ```bash
 agent-session-trajectory --list-agents
@@ -74,8 +78,8 @@ agent-session-trajectory --describe-agent codex
   `opencode.txt`. If `--source` is omitted, the script only checks the current
   directory for those obvious capture files; it does not recover default
   OpenCode history.
-- Other supported agents: pass the exact native source path shown by
-  `--describe-agent <agent>`.
+- Other agents are not currently supported by this tool, even if Harbor has
+  adapters for them.
 
 ## Capture Before Running
 

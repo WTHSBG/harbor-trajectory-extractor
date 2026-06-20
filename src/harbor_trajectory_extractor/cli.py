@@ -28,6 +28,9 @@ from harbor_trajectory_extractor.vendored import (
 )
 
 HELP_EPILOG = """Workflows:
+  Supported agents:
+    claude-code, codex, opencode
+
   Agent already ran:
     htextract --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
     htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
@@ -97,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Extraction inputs: these are required only when actually extracting.
     parser.add_argument(
         "--agent",
-        help="Agent name, e.g. claude-code, codex, opencode.",
+        help="Agent name. Currently supported: claude-code, codex, opencode.",
     )
     parser.add_argument(
         "--source",
@@ -155,7 +158,12 @@ def run_discovery_command(args: argparse.Namespace) -> int | None:
     if args.describe_agent:
         workflow = format_agent_workflow(args.describe_agent)
         if workflow is None:
-            print(f"unknown agent: {args.describe_agent}", file=sys.stderr)
+            supported = ", ".join(supported_agent_names())
+            print(
+                f"unsupported agent: {args.describe_agent}\n"
+                f"currently supported agents: {supported}",
+                file=sys.stderr,
+            )
             return 2
         print(workflow)
         return 0

@@ -3,11 +3,9 @@
 Standalone CLI for extracting Harbor ATIF `trajectory.json` files from a Harbor
 trial `agent/` log directory.
 
-The default backend uses Harbor's own installed agent adapters, so it covers the
-same agent names exposed by Harbor's `AgentFactory`. If the current Python cannot
-import `harbor`, the CLI automatically finds the `harbor` executable on `PATH`,
-reads its shebang, and reruns the official converter inside Harbor's Python
-environment.
+The converter code is vendored from Harbor's installed-agent adapters and runs
+inside this project. It does not import the external `harbor` package, does not
+shell out to the `harbor` CLI, and does not require Harbor to be installed.
 
 ## Install
 
@@ -65,14 +63,15 @@ htextract \
 
 ## Backends
 
-- `--backend auto` first calls Harbor's official adapter, then falls back to
+- `--backend auto` first calls the vendored Harbor converter, then falls back to
   copying an existing ATIF `trajectory.json`.
-- `--backend harbor` requires the official Harbor adapter to produce a trajectory.
+- `--backend vendored` requires the vendored converter to produce a trajectory.
 - `--backend fallback` only reuses an existing ATIF trajectory file.
 
-The official backend is the complete path for all Harbor-supported agents. The
-fallback path exists for directories where an agent already emitted ATIF or
-Harbor previously wrote `trajectory.json`.
+The vendored backend contains Harbor's conversion implementations for agents that
+have native-log-to-ATIF post-processing in Harbor. The fallback path exists for
+agents that already emit ATIF directly, or for agents where Harbor itself only
+collects metrics and does not create a trajectory.
 
 ## Input Files By Agent
 
@@ -90,3 +89,9 @@ Run `htextract --describe-agent <name>` for exact patterns. Common examples:
 Generated trajectories may include explicit `reasoning_content` when the source
 agent emitted it. Treat these files as sensitive artifacts.
 
+## Vendored Source
+
+The Harbor compatibility namespace under
+`src/harbor_trajectory_extractor/vendor/harbor/` is derived from Harbor 0.13.2's
+installed-agent trajectory conversion code plus a small local compatibility
+layer. See `NOTICE` for attribution.

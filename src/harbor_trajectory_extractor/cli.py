@@ -12,9 +12,9 @@ from harbor_trajectory_extractor.agents import (
 )
 from harbor_trajectory_extractor.atif import summarize
 from harbor_trajectory_extractor.fallback import extract_with_fallback
-from harbor_trajectory_extractor.official import (
-    OfficialBackendError,
-    extract_with_official_backend,
+from harbor_trajectory_extractor.vendored import (
+    VendoredBackendError,
+    extract_with_vendored_backend,
 )
 
 
@@ -30,14 +30,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model", help="Optional model name passed to Harbor's adapter.")
     parser.add_argument(
         "--backend",
-        choices=("auto", "harbor", "fallback"),
+        choices=("auto", "vendored", "fallback"),
         default="auto",
-        help="auto tries Harbor's official adapter first, then existing-ATIF fallback.",
+        help="auto tries vendored Harbor converter first, then existing-ATIF fallback.",
     )
     parser.add_argument(
         "--kwargs-json",
         default="{}",
-        help="JSON object of extra kwargs passed to the Harbor adapter, for example OpenHands trajectory_config.",
+        help="JSON object of extra kwargs passed to the vendored Harbor adapter, for example OpenHands trajectory_config.",
     )
     parser.add_argument("--instruction-path", type=Path, help="Optional instruction file used by adapters that need the prompt.")
     parser.add_argument("--summary", action="store_true", help="Print a compact trajectory summary after extraction.")
@@ -86,20 +86,19 @@ def main(argv: list[str] | None = None) -> int:
 
     errors: list[str] = []
 
-    if args.backend in {"auto", "harbor"}:
+    if args.backend in {"auto", "vendored"}:
         try:
-            extract_with_official_backend(
+            extract_with_vendored_backend(
                 agent_name=agent,
                 agent_dir=agent_dir,
                 output=output,
                 model_name=args.model,
                 kwargs=kwargs,
-                kwargs_json=args.kwargs_json,
                 instruction_path=args.instruction_path,
             )
-        except OfficialBackendError as exc:
-            errors.append(f"harbor backend: {exc}")
-            if args.backend == "harbor":
+        except VendoredBackendError as exc:
+            errors.append(f"vendored backend: {exc}")
+            if args.backend == "vendored":
                 print(errors[-1], file=sys.stderr)
                 return 1
         else:
@@ -125,4 +124,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -1,0 +1,12 @@
+harbor-trajectory-extractor vendors trajectory conversion code derived from
+Harbor 0.13.2.
+
+Harbor:
+  Name: harbor
+  Version: 0.13.2
+  Author: Alex Shaw
+  License: Apache-2.0
+
+The vendored code lives under:
+  src/harbor_trajectory_extractor/vendor/harbor/
+

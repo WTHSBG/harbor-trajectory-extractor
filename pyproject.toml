@@ -8,9 +8,12 @@ version = "0.1.0"
 description = "Extract Harbor ATIF trajectory.json files from agent log directories."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 authors = [{ name = "WTHSBG" }]
-dependencies = []
+dependencies = [
+  "pydantic>=2",
+  "PyYAML>=6",
+]
 
 [project.scripts]
 harbor-trajectory-extractor = "harbor_trajectory_extractor.cli:main"
@@ -18,4 +21,3 @@ htextract = "harbor_trajectory_extractor.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-

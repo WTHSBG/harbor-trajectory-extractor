@@ -53,6 +53,10 @@ def _print_agent_description(agent: str) -> int:
     print("primary files:")
     for pattern in info.primary_files:
         print(f"  - {pattern}")
+    if info.run_requirements:
+        print("run requirements:")
+        for requirement in info.run_requirements:
+            print(f"  - {requirement}")
     print(f"notes: {info.notes}")
     return 0
 

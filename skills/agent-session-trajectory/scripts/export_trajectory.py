@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -34,10 +35,17 @@ def repo_root() -> Path:
 
 
 def htextract_base_command() -> list[str]:
+    configured = os.environ.get("HTEXTRACT")
+    if configured:
+        return shlex.split(configured)
+
     root = repo_root()
-    venv_htextract = root / "src" / "harbor_trajectory_extractor" / ".venv" / "bin" / "htextract"
-    if venv_htextract.exists():
-        return [str(venv_htextract)]
+    for candidate in [
+        root / ".venv" / "bin" / "htextract",
+        root / "src" / "harbor_trajectory_extractor" / ".venv" / "bin" / "htextract",
+    ]:
+        if candidate.exists():
+            return [str(candidate)]
 
     found = shutil.which("htextract")
     if found:

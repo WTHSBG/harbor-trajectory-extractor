@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Session Trajectory"
+  short_description: "Export agent sessions to ATIF"
+  default_prompt: "Use $agent-session-trajectory to generate a Harbor ATIF trajectory from an agent session or source artifact."

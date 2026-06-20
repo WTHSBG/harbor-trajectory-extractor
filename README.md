@@ -11,27 +11,68 @@ The converter code is vendored from Harbor's installed-agent adapters and runs
 inside this project. It does not shell out to `harbor` and does not require
 Harbor to be installed.
 
-## Install
+## Clone And Install
 
 ```bash
-python3 -m venv src/harbor_trajectory_extractor/.venv
-source src/harbor_trajectory_extractor/.venv/bin/activate
-python -m pip install -r requirements.txt
+git clone git@github.com:WTHSBG/harbor-trajectory-extractor.git
+cd harbor-trajectory-extractor
+scripts/install-skill.sh
 ```
 
-On machines where `python -m venv` / `ensurepip` is broken, create the venv with
-uv instead:
+This does three things:
+
+- installs the `htextract` CLI into `./.venv`
+- symlinks `skills/agent-session-trajectory` into
+  `${CODEX_HOME:-~/.codex}/skills/agent-session-trajectory`
+- writes wrappers to `~/.local/bin/htextract` and
+  `~/.local/bin/agent-session-trajectory`
+
+Use `--copy` if you want to copy the skill instead of symlinking it, `--force`
+to replace an existing installed skill, or `--no-tool` if `htextract` is already
+installed.
+
+After installation, restart Codex or reload skills if your Codex surface needs
+that. The skill name is `$agent-session-trajectory`, and the installed helper
+command is:
 
 ```bash
-uv venv --python 3.13 src/harbor_trajectory_extractor/.venv
-uv pip install --python src/harbor_trajectory_extractor/.venv/bin/python -r requirements.txt
-source src/harbor_trajectory_extractor/.venv/bin/activate
+agent-session-trajectory --help
 ```
 
-Run without activating:
+## Manual CLI Install
+
+If you only want the trajectory extraction tool:
 
 ```bash
-src/harbor_trajectory_extractor/.venv/bin/htextract --help
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
+.venv/bin/htextract --help
+```
+
+You can also activate the venv:
+
+```bash
+source .venv/bin/activate
+htextract --help
+```
+
+If `python3 -m venv` fails because `ensurepip` is unavailable, use uv:
+
+```bash
+uv venv .venv
+uv pip install --python .venv/bin/python -e .
+```
+
+## Project Layout
+
+```text
+.
+├── scripts/install-skill.sh              # clone-to-Codex installer
+├── skills/agent-session-trajectory/      # installable Codex skill
+├── src/harbor_trajectory_extractor/      # standalone htextract CLI package
+├── tests/                                # CLI and converter tests
+├── pyproject.toml
+└── requirements.txt
 ```
 
 ## Mental Model
@@ -87,10 +128,15 @@ htextract --agent codex --source <session.jsonl> --output /tmp/trajectory.json
 ## Codex Skill
 
 This repo includes a local Codex skill at
-`skills/current-session-trajectory/`. It is not installed automatically; keep it
-in this repo or copy it into a Codex skills directory when you want another
-Codex session to generate a Harbor ATIF trajectory from an agent session/source
-artifact.
+`skills/agent-session-trajectory/`. Install it with:
+
+```bash
+scripts/install-skill.sh
+```
+
+The installer symlinks the skill by default, so future git pulls update the
+installed skill automatically. The skill helps another Codex session generate a
+Harbor ATIF trajectory from an agent session/source artifact.
 
 The skill's helper script can auto-select the newest local session for Codex,
 Claude Code, and limited OpenCode captures. For any exact session, or for any
@@ -105,11 +151,11 @@ The default output filename is written in the current working directory:
 Examples:
 
 ```bash
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent codex --summary
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent claude-code --summary
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent opencode --source ./opencode.jsonl --summary
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent gemini-cli --source ./gemini-trajectory.jsonl --summary
+agent-session-trajectory --agent codex --summary
+agent-session-trajectory --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
+agent-session-trajectory --agent claude-code --summary
+agent-session-trajectory --agent opencode --source ./opencode.jsonl --summary
+agent-session-trajectory --agent gemini-cli --source ./gemini-trajectory.jsonl --summary
 ```
 
 Use `--output-dir <dir>` to keep the generated default filename in another
@@ -118,12 +164,19 @@ directory, or `--output <file>` to choose the exact path.
 To discover what a non-default agent needs:
 
 ```bash
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --list-agents
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --describe-agent gemini-cli
+agent-session-trajectory --list-agents
+agent-session-trajectory --describe-agent gemini-cli
 ```
 
 When export is impossible, the script prints a `cannot export` message with the
 agent, source, and next command to run.
+
+For local development without installing the wrapper, run the bundled script
+from the repo root:
+
+```bash
+python3 skills/agent-session-trajectory/scripts/export_trajectory.py --agent codex --summary
+```
 
 ## Claude Code
 

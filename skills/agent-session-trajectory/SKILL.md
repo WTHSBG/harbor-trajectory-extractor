@@ -1,5 +1,5 @@
 ---
-name: current-session-trajectory
+name: agent-session-trajectory
 description: Generate a Harbor ATIF trajectory file from an agent session/source artifact. Use when the user asks to export, create, extract, or generate trajectory.json/ATIF trajectory data for any htextract-supported agent session, including Codex, Claude Code/claudecode/cc, OpenCode, or an explicitly provided source path.
 ---
 
@@ -13,7 +13,13 @@ native session/source artifact.
 Prefer the bundled script:
 
 ```bash
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent codex --summary
+agent-session-trajectory --agent codex --summary
+```
+
+If the wrapper is not on `PATH`, use the installed skill path:
+
+```bash
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/agent-session-trajectory/scripts/export_trajectory.py" --agent codex --summary
 ```
 
 If `--source` is omitted, the script can auto-detect the newest local session
@@ -29,12 +35,12 @@ The script writes this default filename to the current working directory:
 Examples:
 
 ```bash
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent codex --summary
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent claude-code --summary
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent opencode --source ./opencode.jsonl --summary
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent gemini-cli --source ./gemini-trajectory.jsonl --summary
+agent-session-trajectory --agent codex --summary
+agent-session-trajectory --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
+agent-session-trajectory --agent claude-code --summary
+agent-session-trajectory --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
+agent-session-trajectory --agent opencode --source ./opencode.jsonl --summary
+agent-session-trajectory --agent gemini-cli --source ./gemini-trajectory.jsonl --summary
 ```
 
 Use `--output-dir <dir>` to choose the directory. Use `--output <file>` to
@@ -45,13 +51,13 @@ choose the exact file path.
 List supported agents:
 
 ```bash
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --list-agents
+agent-session-trajectory --list-agents
 ```
 
 Show what source artifact a specific agent needs:
 
 ```bash
-python skills/current-session-trajectory/scripts/generate_current_trajectory.py --describe-agent codex
+agent-session-trajectory --describe-agent codex
 ```
 
 ## Source Notes

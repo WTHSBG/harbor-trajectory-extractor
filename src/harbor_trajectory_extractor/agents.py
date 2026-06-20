@@ -37,6 +37,10 @@ SUPPORTED_AGENTS: tuple[str, ...] = (
 )
 
 ALIASES: dict[str, str] = {
+    "cc": "claude-code",
+    "claude": "claude-code",
+    "claude_code": "claude-code",
+    "open-code": "opencode",
     "qwen-code": "qwen-coder",
     "qwen": "qwen-coder",
     "terminus": "terminus-2",
@@ -123,3 +127,47 @@ def supported_agent_names() -> tuple[str, ...]:
 
 def describe_agent(agent: str) -> AgentInput | None:
     return AGENT_INPUTS.get(normalize_agent_name(agent))
+
+
+def format_agent_workflow(agent: str) -> str | None:
+    info = describe_agent(agent)
+    if info is None:
+        return None
+
+    lines = [
+        f"agent: {info.agent}",
+        "",
+        "Scenario 1: agent already ran",
+        "  Required captured files under <agent-dir>:",
+    ]
+    for pattern in info.primary_files:
+        lines.append(f"    - {pattern}")
+    lines.extend(
+        [
+            "  Extract with:",
+            f"    htextract --agent {info.agent} --agent-dir <agent-dir> --summary",
+            "  Optional output path:",
+            f"    htextract --agent {info.agent} --agent-dir <agent-dir> --output <trajectory.json>",
+            "",
+            "Scenario 2: agent has not run yet",
+        ]
+    )
+
+    if info.run_requirements:
+        lines.append("  Run/capture requirements:")
+        for requirement in info.run_requirements:
+            lines.append(f"    - {requirement}")
+    else:
+        lines.append(
+            "  This agent has no extra native-log capture recipe in this tool; "
+            "it must already emit ATIF trajectory.json or use fallback."
+        )
+    lines.extend(
+        [
+            "  After the run, point htextract at the directory containing the captured files:",
+            f"    htextract --agent {info.agent} --agent-dir <agent-dir> --summary",
+            "",
+            f"notes: {info.notes}",
+        ]
+    )
+    return "\n".join(lines)

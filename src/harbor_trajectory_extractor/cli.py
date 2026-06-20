@@ -7,6 +7,7 @@ from pathlib import Path
 
 from harbor_trajectory_extractor.agents import (
     describe_agent,
+    format_agent_workflow,
     normalize_agent_name,
     supported_agent_names,
 )
@@ -19,15 +20,40 @@ from harbor_trajectory_extractor.vendored import (
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    epilog = """Workflows:
+  1. Agent already ran:
+     htextract --describe-agent claude-code
+     htextract --agent claude-code --agent-dir jobs/<job>/<trial>/agent --summary
+
+  2. Agent has not run yet:
+     htextract --describe-agent opencode
+     # Run the agent with the printed capture requirements, preserving logs in <agent-dir>.
+     htextract --agent opencode --agent-dir <agent-dir> --summary
+
+Use --describe-agent <agent> before running cc/opencode/codex to see required
+runtime flags and post-run copy steps.
+"""
     parser = argparse.ArgumentParser(
-        description="Extract Harbor ATIF trajectory.json from an agent log directory."
+        description="Extract Harbor ATIF trajectory.json from captured agent logs.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=epilog,
     )
     parser.add_argument("--list-agents", action="store_true", help="Print supported Harbor agent names and exit.")
-    parser.add_argument("--describe-agent", help="Print expected input files for an agent and exit.")
+    parser.add_argument(
+        "--describe-agent",
+        help=(
+            "Print both workflows for an agent: files needed if it already ran, "
+            "and capture flags/copy steps if it has not run yet."
+        ),
+    )
     parser.add_argument("--agent", help="Harbor agent name, e.g. claude-code, codex, opencode.")
-    parser.add_argument("--agent-dir", type=Path, help="Path to the Harbor trial agent log directory.")
+    parser.add_argument(
+        "--agent-dir",
+        type=Path,
+        help="Path to the captured agent log directory, e.g. a Harbor trial agent/ directory.",
+    )
     parser.add_argument("--output", type=Path, help="Output path. Defaults to <agent-dir>/trajectory.json.")
-    parser.add_argument("--model", help="Optional model name passed to Harbor's adapter.")
+    parser.add_argument("--model", help="Optional model name passed to the vendored Harbor adapter.")
     parser.add_argument(
         "--backend",
         choices=("auto", "vendored", "fallback"),
@@ -49,15 +75,11 @@ def _print_agent_description(agent: str) -> int:
     if info is None:
         print(f"unknown agent: {agent}", file=sys.stderr)
         return 2
-    print(f"agent: {info.agent}")
-    print("primary files:")
-    for pattern in info.primary_files:
-        print(f"  - {pattern}")
-    if info.run_requirements:
-        print("run requirements:")
-        for requirement in info.run_requirements:
-            print(f"  - {requirement}")
-    print(f"notes: {info.notes}")
+    workflow = format_agent_workflow(info.agent)
+    if workflow is None:
+        print(f"unknown agent: {agent}", file=sys.stderr)
+        return 2
+    print(workflow)
     return 0
 
 

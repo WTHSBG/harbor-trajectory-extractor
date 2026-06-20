@@ -19,9 +19,19 @@ Or run without installing:
 PYTHONPATH=src python -m harbor_trajectory_extractor --help
 ```
 
-## Usage
+## Two Workflows
 
-Extract in place:
+This tool supports two different moments in the agent lifecycle.
+
+### 1. Agent Already Ran
+
+First ask the tool what files it needs for that agent:
+
+```bash
+htextract --describe-agent claude-code
+```
+
+Then point it at the directory containing those captured files:
 
 ```bash
 htextract \
@@ -30,7 +40,7 @@ htextract \
   --summary
 ```
 
-Write somewhere else:
+Write the trajectory somewhere else:
 
 ```bash
 htextract \
@@ -40,19 +50,43 @@ htextract \
   --model gpt-5.1
 ```
 
+### 2. Agent Has Not Run Yet
+
+Ask the tool for the capture recipe before running the agent:
+
+```bash
+htextract --describe-agent opencode
+```
+
+Run the agent with the printed runtime flags and log/session preservation steps.
+After the run finishes, extract from the captured agent directory:
+
+```bash
+htextract \
+  --agent opencode \
+  --agent-dir /path/to/agent \
+  --summary
+```
+
+For `claude-code`/`cc`, `opencode`, and `codex`, the run-time flags matter:
+without the native session/log output, this extractor cannot reconstruct a full
+trajectory after the fact.
+
+## Other Commands
+
 List supported Harbor agent names:
 
 ```bash
 htextract --list-agents
 ```
 
-Show what files a converter expects:
+Show both workflows for a specific agent:
 
 ```bash
 htextract --describe-agent opencode
 ```
 
-Pass adapter-specific kwargs through to Harbor:
+Pass adapter-specific kwargs through to the vendored Harbor adapter:
 
 ```bash
 htextract \

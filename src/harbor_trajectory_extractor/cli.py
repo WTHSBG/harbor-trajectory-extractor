@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from harbor_trajectory_extractor.agents import (
     format_agent_workflow,
     normalize_agent_name,
@@ -174,10 +177,25 @@ def parse_adapter_kwargs(raw_json: str) -> dict[str, Any]:
 
 def build_extract_request(args: argparse.Namespace) -> ExtractRequest:
     """Validate extraction arguments and convert them into a typed request."""
-    if not args.agent or not args.agent_dir:
+    if not args.agent and not args.agent_dir:
         raise UsageError(
-            "--agent and --agent-dir are required unless using "
-            "--list-agents or --describe-agent"
+            "No extraction command selected.\n\n"
+            "If the agent already ran:\n"
+            "  htextract --agent <agent> --agent-dir <agent-dir> --summary\n\n"
+            "If the agent has not run yet:\n"
+            "  htextract --describe-agent <agent>\n\n"
+            "Use --help for full examples."
+        )
+    if not args.agent:
+        raise UsageError(
+            "Missing --agent. Use --list-agents to see supported agents, "
+            "or --describe-agent <agent> to see capture requirements."
+        )
+    if not args.agent_dir:
+        raise UsageError(
+            "Missing --agent-dir. This should point to the directory containing "
+            f"captured {args.agent} logs; run "
+            f"`htextract --describe-agent {args.agent}` to see required files."
         )
 
     agent = normalize_agent_name(args.agent)
@@ -252,7 +270,12 @@ def print_result(output: Path, *, summary: bool) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
+    raw_argv = sys.argv[1:] if argv is None else argv
+    if not raw_argv:
+        build_parser().print_help()
+        return 0
+
+    args = parse_args(raw_argv)
 
     discovery_exit_code = run_discovery_command(args)
     if discovery_exit_code is not None:

@@ -84,6 +84,31 @@ Write to a specific file:
 htextract --agent codex --source <session.jsonl> --output /tmp/trajectory.json
 ```
 
+## Codex Skill
+
+This repo includes a local Codex skill at
+`skills/current-session-trajectory/`. It is not installed automatically; keep it
+in this repo or copy it into a Codex skills directory when you want another
+Codex session to generate the current session trajectory.
+
+The skill's helper script auto-selects the newest current-session artifact when
+possible and writes this default filename in the current working directory:
+
+```text
+<agent>-<session>-trajectory.json
+```
+
+Examples:
+
+```bash
+python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent codex --summary
+python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent claude-code --summary
+python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent opencode --source ./opencode.jsonl --summary
+```
+
+Use `--output-dir <dir>` to keep the generated default filename in another
+directory, or `--output <file>` to choose the exact path.
+
 ## Claude Code
 
 Already ran:

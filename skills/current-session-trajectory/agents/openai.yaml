@@ -1,0 +1,4 @@
+interface:
+  display_name: "Current Session Trajectory"
+  short_description: "Export current agent session to ATIF"
+  default_prompt: "Use $current-session-trajectory to generate a Harbor ATIF trajectory for the current agent session."

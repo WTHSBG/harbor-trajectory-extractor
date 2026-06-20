@@ -67,10 +67,10 @@ AGENT_INPUTS: dict[str, AgentInput] = {
         ("Claude Code session .jsonl",),
         "Claude Code session JSONL is authoritative; claude-code.txt is optional and only supplies final cost when present.",
         (
-            "Set CLAUDE_CONFIG_DIR to the agent log sessions directory, e.g. <agent-dir>/sessions, before running claude.",
-            "Run claude with --verbose --output-format=stream-json --print and tee stdout/stderr to <agent-dir>/claude-code.txt if you want total_cost_usd.",
-            "Ensure the session JSONL lands under <agent-dir>/sessions/projects/<project>/*.jsonl; Harbor uses projects/-app inside the benchmark container.",
+            "Claude Code records sessions by default under ~/.claude/projects/.../*.jsonl.",
+            "For a predictable source path, set CLAUDE_CONFIG_DIR before running; pass that directory or its session .jsonl to --source.",
             "For reasoning_content, request thinking explicitly, e.g. --thinking enabled --thinking-display summarized --max-thinking-tokens <n>; otherwise the trajectory may have no reasoning blocks.",
+            "For total_cost_usd, run with --output-format=stream-json --print and tee stdout/stderr to claude-code.txt next to the session source; the session JSONL is still the required artifact.",
         ),
         optional_files=("claude-code.txt",),
         source_examples=(
@@ -86,8 +86,8 @@ AGENT_INPUTS: dict[str, AgentInput] = {
         (
             "Run codex exec with --json so Codex writes machine-readable session events under CODEX_HOME/sessions.",
             "Use a dedicated CODEX_HOME during the run and preserve $CODEX_HOME/sessions after codex exits.",
-            "Tee stdout/stderr to codex.txt only if you want a human-readable run log; this converter does not read codex.txt.",
             "For reasoning summaries, configure Codex with -c model_reasoning_summary=<auto|concise|detailed|none>; Harbor defaults model_reasoning_effort=high.",
+            "codex.txt is only a human-readable run log; this converter reads the session JSONL, not stdout.",
         ),
         source_examples=(
             "htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary",
@@ -111,9 +111,9 @@ AGENT_INPUTS: dict[str, AgentInput] = {
         ("OpenCode JSON stdout from `opencode run --format=json`",),
         "opencode run --format=json stdout.",
         (
-            "Run opencode with run --format=json and tee stdout/stderr to <agent-dir>/opencode.txt.",
-            "Include --thinking if you want reasoning blocks in the JSON stream; Harbor always adds it.",
-            "The converter reconstructs the user turn from the stream when present; if your stream omits it, pass --instruction-path or keep instruction.txt beside the agent directory.",
+            "Run opencode with run --format=json and tee stdout/stderr to a file, e.g. opencode.jsonl.",
+            "Include --thinking if you want reasoning blocks preserved in the JSON stream.",
+            "The converter reconstructs the user turn from the stream when present; if your stream omits it, pass --instruction-path.",
         ),
         source_examples=(
             "htextract --agent opencode --source ./opencode.txt --summary",
@@ -153,8 +153,8 @@ def format_agent_workflow(agent: str) -> str | None:
     lines = [
         f"agent: {info.agent}",
         "",
-        "Scenario 1: agent already ran",
-        "  Pass the native artifact directly with --source:",
+        "If the agent already ran",
+        "  Pass this run's native artifact directly with --source:",
     ]
     if info.source_examples:
         for example in info.source_examples:
@@ -170,12 +170,10 @@ def format_agent_workflow(agent: str) -> str | None:
             lines.append(f"    - {pattern}")
     lines.extend(
         [
-            "  If you already have a Harbor trial agent/ directory, keep using:",
-            f"    htextract --agent {info.agent} --agent-dir <agent-dir> --summary",
-            "  Optional output path works with both --source and --agent-dir:",
+            "  Optional output path:",
             f"    htextract --agent {info.agent} --source <native-log-or-dir> --output <trajectory.json>",
             "",
-            "Scenario 2: agent has not run yet",
+            "If the agent has not run yet",
         ]
     )
 
@@ -190,8 +188,7 @@ def format_agent_workflow(agent: str) -> str | None:
         )
     lines.extend(
         [
-            "  After the run, point htextract at the native artifact with --source,",
-            "  or at a Harbor-shaped agent/ directory with --agent-dir:",
+            "  After the run, point htextract at the artifact from that run:",
             f"    htextract --agent {info.agent} --source <native-log-or-dir> --summary",
             "",
             f"notes: {info.notes}",

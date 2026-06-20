@@ -5,7 +5,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -27,23 +27,19 @@ from harbor_trajectory_extractor.vendored import (
     extract_with_vendored_backend,
 )
 
-BackendName = Literal["auto", "vendored", "fallback"]
-
-
 HELP_EPILOG = """Workflows:
-  1. Agent already ran:
-     htextract --describe-agent claude-code
-     htextract --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
-     htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
-     htextract --agent opencode --source ./opencode.txt --summary
+  Agent already ran:
+    htextract --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
+    htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
+    htextract --agent opencode --source ./opencode.jsonl --summary
 
-  2. Agent has not run yet:
-     htextract --describe-agent opencode
-     # Run the agent with the printed capture requirements.
-     htextract --agent opencode --source <native-log-or-dir> --summary
+  Agent has not run yet:
+    htextract --describe-agent opencode
+    # Run the agent with the printed capture flags, then pass the produced file.
+    htextract --agent opencode --source ./opencode.jsonl --summary
 
-Use --describe-agent <agent> before running cc/opencode/codex to see required
-runtime flags and post-run copy steps.
+Use --describe-agent <agent> before running cc/opencode/codex to see exactly
+which files are available by default and which flags you must add before a run.
 """
 
 
@@ -52,7 +48,7 @@ class UsageError(ValueError):
 
 
 class ExtractionError(RuntimeError):
-    """Raised when every selected extraction backend fails."""
+    """Raised when every converter path fails."""
 
 
 @dataclass(frozen=True)
@@ -61,14 +57,14 @@ class ExtractRequest:
 
     By the time we construct this object, discovery-only commands such as
     --list-agents and --describe-agent have already returned, paths are absolute,
-    the agent alias has been normalized, and --kwargs-json is a real dict.
+    the agent alias has been normalized, and the source has been staged for the
+    converter.
     """
 
     agent: str
-    agent_dir: Path
+    work_dir: Path
     output: Path
     model_name: str | None
-    backend: BackendName
     adapter_kwargs: dict[str, Any]
     instruction_path: Path | None
     print_summary: bool
@@ -91,39 +87,31 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--describe-agent",
         help=(
-            "Print both workflows for an agent: files needed if it already ran, "
-            "and capture flags/copy steps if it has not run yet."
+            "Print the already-ran source path and not-yet-run capture recipe "
+            "for an agent."
         ),
     )
 
     # Extraction inputs: these are required only when actually extracting.
     parser.add_argument(
         "--agent",
-        help="Harbor agent name, e.g. claude-code, codex, opencode.",
-    )
-    parser.add_argument(
-        "--agent-dir",
-        type=Path,
-        help=(
-            "Path to a Harbor-shaped captured agent log directory, e.g. a "
-            "Harbor trial agent/ directory. Use --source for native files."
-        ),
+        help="Agent name, e.g. claude-code, codex, opencode.",
     )
     parser.add_argument(
         "--source",
         type=Path,
         help=(
-            "Native already-ran artifact path. Examples: Claude Code session "
-            ".jsonl, Codex session .jsonl or sessions/ directory, OpenCode "
-            "JSON stdout file."
+            "Native artifact from the agent run. Examples: Claude Code session "
+            ".jsonl or CLAUDE_CONFIG_DIR, Codex session .jsonl or sessions/ "
+            "directory, OpenCode JSON stdout file."
         ),
     )
     parser.add_argument(
         "--output",
         type=Path,
         help=(
-            "Output path. Defaults to <agent-dir>/trajectory.json for "
-            "--agent-dir, or next to --source for direct native inputs."
+            "Output path. Defaults to trajectory.json next to the source file, "
+            "or inside the source directory."
         ),
     )
     parser.add_argument(
@@ -132,24 +120,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional instruction file used by adapters that need the prompt.",
     )
 
-    # Adapter/backend knobs: these are advanced escape hatches for Harbor parity.
     parser.add_argument(
         "--model",
-        help="Optional model name passed to the vendored Harbor adapter.",
-    )
-    parser.add_argument(
-        "--backend",
-        choices=("auto", "vendored", "fallback"),
-        default="auto",
-        help="auto tries vendored Harbor converter first, then existing-ATIF fallback.",
-    )
-    parser.add_argument(
-        "--kwargs-json",
-        default="{}",
-        help=(
-            "JSON object of extra kwargs passed to the vendored Harbor adapter, "
-            "for example OpenHands trajectory_config."
-        ),
+        help="Optional model name used when the source artifact does not include one.",
     )
     parser.add_argument(
         "--summary",
@@ -168,9 +141,9 @@ def run_discovery_command(args: argparse.Namespace) -> int | None:
 
     There are two user situations this CLI must serve:
     - If the user already ran an agent, --describe-agent tells them which files
-      can be passed directly through --source before extraction can work.
+      can be passed directly through --source.
     - If the user has not run an agent yet, the same output tells them which
-      runtime flags and copy/tee steps to use before coming back to extraction.
+      runtime flags and tee/copy steps are needed before coming back.
     """
     if args.list_agents:
         for name in supported_agent_names():
@@ -188,23 +161,13 @@ def run_discovery_command(args: argparse.Namespace) -> int | None:
     return None
 
 
-def parse_adapter_kwargs(raw_json: str) -> dict[str, Any]:
-    try:
-        value = json.loads(raw_json)
-    except json.JSONDecodeError as exc:
-        raise UsageError(f"invalid --kwargs-json: {exc}") from exc
-    if not isinstance(value, dict):
-        raise UsageError("--kwargs-json must be a JSON object")
-    return value
-
-
 def build_extract_request(args: argparse.Namespace) -> ExtractRequest:
     """Validate extraction arguments and convert them into a typed request."""
-    if not args.agent and not args.agent_dir and not args.source:
+    if not args.agent and not args.source:
         raise UsageError(
             "No extraction command selected.\n\n"
             "If the agent already ran:\n"
-            "  htextract --agent <agent> --source <native-log-or-dir> --summary\n\n"
+            "  htextract --agent <agent> --source <session-log-or-dir> --summary\n\n"
             "If the agent has not run yet:\n"
             "  htextract --describe-agent <agent>\n\n"
             "Use --help for full examples."
@@ -214,63 +177,44 @@ def build_extract_request(args: argparse.Namespace) -> ExtractRequest:
             "Missing --agent. Use --list-agents to see supported agents, "
             "or --describe-agent <agent> to see capture requirements."
         )
-    if args.agent_dir and args.source:
-        raise UsageError("Use either --source or --agent-dir, not both.")
-    if not args.agent_dir and not args.source:
+    if not args.source:
         raise UsageError(
-            "Missing input path. If the agent already ran, pass the native "
-            f"artifact with `htextract --agent {args.agent} --source <path>`. "
-            f"If you have a Harbor trial log directory, use --agent-dir. Run "
+            "Missing --source. Pass the native artifact from this agent run, "
+            f"for example `htextract --agent {args.agent} --source <path>`. "
+            f"Run "
             f"`htextract --describe-agent {args.agent}` for examples."
         )
 
     agent = normalize_agent_name(args.agent)
-    cleanup = None
-
-    if args.source:
-        source = args.source.resolve()
-        try:
-            prepared_source = prepare_source(agent, source)
-        except SourcePreparationError as exc:
-            raise UsageError(str(exc)) from exc
-        agent_dir = prepared_source.agent_dir.resolve()
-        cleanup = prepared_source.cleanup
-        default_output = default_output_for_source(source)
-    else:
-        agent_dir = args.agent_dir.resolve()
-        default_output = agent_dir / "trajectory.json"
+    source = args.source.resolve()
+    try:
+        prepared_source = prepare_source(agent, source)
+    except SourcePreparationError as exc:
+        raise UsageError(str(exc)) from exc
+    work_dir = prepared_source.work_dir.resolve()
+    default_output = default_output_for_source(source)
 
     output = (args.output or default_output).resolve()
 
     return ExtractRequest(
         agent=agent,
-        agent_dir=agent_dir,
+        work_dir=work_dir,
         output=output,
         model_name=args.model,
-        backend=args.backend,
-        adapter_kwargs=parse_adapter_kwargs(args.kwargs_json),
+        adapter_kwargs={},
         instruction_path=args.instruction_path.resolve()
         if args.instruction_path
         else None,
         print_summary=args.summary,
-        cleanup=cleanup,
+        cleanup=prepared_source.cleanup,
     )
-
-
-def selected_backends(backend: BackendName) -> tuple[Literal["vendored", "fallback"], ...]:
-    """Return the concrete backend order implied by --backend."""
-    if backend == "vendored":
-        return ("vendored",)
-    if backend == "fallback":
-        return ("fallback",)
-    return ("vendored", "fallback")
 
 
 def run_vendored_backend(request: ExtractRequest) -> Path:
     """Run Harbor's vendored native-log-to-ATIF converter."""
     return extract_with_vendored_backend(
         agent_name=request.agent,
-        agent_dir=request.agent_dir,
+        agent_dir=request.work_dir,
         output=request.output,
         model_name=request.model_name,
         kwargs=request.adapter_kwargs,
@@ -280,24 +224,24 @@ def run_vendored_backend(request: ExtractRequest) -> Path:
 
 def run_fallback_backend(request: ExtractRequest) -> Path:
     """Reuse an already-existing ATIF trajectory.json when no converter is needed."""
-    if extract_with_fallback(request.agent_dir, request.output):
+    if extract_with_fallback(request.work_dir, request.output):
         return request.output
     raise ExtractionError("fallback: no existing ATIF trajectory.json found")
 
 
 def extract_trajectory(request: ExtractRequest) -> Path:
-    """Try the selected backend(s) and return the produced trajectory path."""
+    """Convert native logs or reuse existing ATIF when the source already has it."""
     errors: list[str] = []
 
-    for backend in selected_backends(request.backend):
-        try:
-            if backend == "vendored":
-                return run_vendored_backend(request)
-            return run_fallback_backend(request)
-        except VendoredBackendError as exc:
-            errors.append(f"vendored backend: {exc}")
-        except ExtractionError as exc:
-            errors.append(str(exc))
+    try:
+        return run_vendored_backend(request)
+    except VendoredBackendError as exc:
+        errors.append(f"native converter: {exc}")
+
+    try:
+        return run_fallback_backend(request)
+    except ExtractionError as exc:
+        errors.append(str(exc))
 
     raise ExtractionError("\n".join(errors))
 

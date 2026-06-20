@@ -21,8 +21,12 @@ class CliTest(unittest.TestCase):
         self.assertIn("Workflows:", output)
         self.assertIn("Agent already ran:", output)
         self.assertIn("--describe-agent", output)
+        self.assertIn("--source", output)
+        self.assertNotIn("--agent-dir", output)
+        self.assertNotIn("--backend", output)
+        self.assertNotIn("--kwargs-json", output)
 
-    def test_missing_input_path_explains_source_and_agent_dir(self) -> None:
+    def test_missing_source_explains_next_step(self) -> None:
         stderr = io.StringIO()
 
         with contextlib.redirect_stderr(stderr):
@@ -30,9 +34,8 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 2)
         output = stderr.getvalue()
-        self.assertIn("Missing input path", output)
+        self.assertIn("Missing --source", output)
         self.assertIn("--source <path>", output)
-        self.assertIn("--agent-dir", output)
         self.assertIn("htextract --describe-agent opencode", output)
 
     def test_claude_code_describes_cost_log_as_optional(self) -> None:
@@ -43,11 +46,38 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         output = stdout.getvalue()
-        self.assertIn("Pass the native artifact directly with --source:", output)
+        self.assertIn("Pass this run's native artifact directly with --source:", output)
         self.assertIn("Native artifacts this converter needs:", output)
         self.assertIn("Optional artifacts:", output)
         self.assertIn("Claude Code session .jsonl", output)
         self.assertIn("claude-code.txt", output)
+        self.assertNotIn("--agent-dir", output)
+
+    def test_opencode_describes_required_capture_flags(self) -> None:
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            exit_code = main(["--describe-agent", "opencode"])
+
+        self.assertEqual(exit_code, 0)
+        output = stdout.getvalue()
+        self.assertIn("opencode --source ./opencode.jsonl", output)
+        self.assertIn("run --format=json", output)
+        self.assertIn("--thinking", output)
+        self.assertNotIn("--agent-dir", output)
+
+    def test_codex_describes_session_jsonl_not_stdout(self) -> None:
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            exit_code = main(["--describe-agent", "codex"])
+
+        self.assertEqual(exit_code, 0)
+        output = stdout.getvalue()
+        self.assertIn("CODEX_HOME/sessions", output)
+        self.assertIn("session JSONL", output)
+        self.assertIn("codex.txt is only a human-readable run log", output)
+        self.assertNotIn("--agent-dir", output)
 
     def test_claude_code_source_file_is_staged_as_session_jsonl(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -57,7 +87,7 @@ class CliTest(unittest.TestCase):
             request = build_extract_request(args)
             try:
                 staged = (
-                    request.agent_dir
+                    request.work_dir
                     / "sessions"
                     / "projects"
                     / "imported"
@@ -76,7 +106,7 @@ class CliTest(unittest.TestCase):
             args = parse_args(["--agent", "opencode", "--source", str(source)])
             request = build_extract_request(args)
             try:
-                self.assertTrue((request.agent_dir / "opencode.txt").exists())
+                self.assertTrue((request.work_dir / "opencode.txt").exists())
                 self.assertEqual(request.output, (source.parent / "trajectory.json").resolve())
             finally:
                 if request.cleanup is not None:
@@ -89,7 +119,7 @@ class CliTest(unittest.TestCase):
             args = parse_args(["--agent", "codex", "--source", str(source)])
             request = build_extract_request(args)
             try:
-                staged = request.agent_dir / "sessions" / "imported" / source.name
+                staged = request.work_dir / "sessions" / "imported" / source.name
                 self.assertTrue(staged.exists())
                 self.assertEqual(request.output, (source.parent / "trajectory.json").resolve())
             finally:

@@ -1,12 +1,15 @@
 # harbor-trajectory-extractor
 
-Standalone CLI for extracting Harbor ATIF `trajectory.json` files from native
-agent artifacts, such as Claude Code/Codex session JSONL files or OpenCode JSON
-stdout. It also accepts a Harbor trial `agent/` log directory for compatibility.
+Extract a completed agent session into Harbor's ATIF `trajectory.json` format.
+
+The input is the agent's own artifact from the run you just finished: a session
+JSONL file, a sessions directory, a JSON stdout capture, or an agent-native
+trajectory file. Harbor is only the output schema here; you do not need to run
+the agent through Harbor.
 
 The converter code is vendored from Harbor's installed-agent adapters and runs
-inside this project. It does not import the external `harbor` package, does not
-shell out to the `harbor` CLI, and does not require Harbor to be installed.
+inside this project. It does not shell out to `harbor` and does not require
+Harbor to be installed.
 
 ## Install
 
@@ -31,127 +34,57 @@ Run without activating:
 src/harbor_trajectory_extractor/.venv/bin/htextract --help
 ```
 
-Or run from source without installing:
+## Mental Model
+
+There are only two questions.
+
+1. The agent already ran: where is this run's native session artifact?
 
 ```bash
-PYTHONPATH=src python -m harbor_trajectory_extractor --help
+htextract --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
+htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
+htextract --agent opencode --source ./opencode.jsonl --summary
 ```
 
-## Two Workflows
-
-This tool supports two different moments in the agent lifecycle.
-
-### 1. Agent Already Ran
-
-First ask the tool what files it needs for that agent:
-
-```bash
-htextract --describe-agent claude-code
-```
-
-Then point it at the native artifact:
-
-```bash
-htextract \
-  --agent claude-code \
-  --source ~/.claude/projects/<project>/<session>.jsonl \
-  --summary
-```
-
-Write the trajectory somewhere else:
-
-```bash
-htextract \
-  --agent codex \
-  --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl \
-  --output /tmp/trajectory.json \
-  --model gpt-5.1
-```
-
-If you already have a Harbor trial log directory, use `--agent-dir` instead:
-
-```bash
-htextract \
-  --agent claude-code \
-  --agent-dir jobs/some-job/some-trial/agent \
-  --summary
-```
-
-### 2. Agent Has Not Run Yet
-
-Ask the tool for the capture recipe before running the agent:
+2. The agent has not run yet: what must I enable before running it?
 
 ```bash
 htextract --describe-agent opencode
 ```
 
-Run the agent with the printed runtime flags and log/session preservation steps.
-After the run finishes, extract from the native artifact:
+Then run the agent with the printed flags, keep the produced artifact, and pass
+that artifact back with `--source`.
 
-```bash
-htextract \
-  --agent opencode \
-  --source /path/to/opencode.txt \
-  --summary
-```
+By default the output is `trajectory.json` next to the source file, or inside the
+source directory. Use `--output` to write somewhere else.
 
-For `claude-code`/`cc`, `opencode`, and `codex`, the run-time flags matter:
-without the native session/log output, this extractor cannot reconstruct a full
-trajectory after the fact.
+## Common Commands
 
-## Other Commands
-
-List supported Harbor agent names:
+List supported agent names:
 
 ```bash
 htextract --list-agents
 ```
 
-Show both workflows for a specific agent:
+Show the source artifact and capture recipe for one agent:
 
 ```bash
-htextract --describe-agent opencode
+htextract --describe-agent claude-code
 ```
 
-Pass adapter-specific kwargs through to the vendored Harbor adapter:
+Extract and print a compact summary:
 
 ```bash
-htextract \
-  --agent openhands \
-  --agent-dir /path/to/agent \
-  --kwargs-json '{"trajectory_config":{"raw_content":true}}'
+htextract --agent claude-code --source <session.jsonl> --summary
 ```
 
-## Backends
+Write to a specific file:
 
-- `--backend auto` first calls the vendored Harbor converter, then falls back to
-  copying an existing ATIF `trajectory.json`.
-- `--backend vendored` requires the vendored converter to produce a trajectory.
-- `--backend fallback` only reuses an existing ATIF trajectory file.
+```bash
+htextract --agent codex --source <session.jsonl> --output /tmp/trajectory.json
+```
 
-The vendored backend contains Harbor's conversion implementations for agents that
-have native-log-to-ATIF post-processing in Harbor. The fallback path exists for
-agents that already emit ATIF directly, or for agents where Harbor itself only
-collects metrics and does not create a trajectory.
-
-## Input Files By Agent
-
-Run `htextract --describe-agent <name>` for exact patterns. Common examples:
-
-- `claude-code`: one Claude Code session `.jsonl` file, or `CLAUDE_CONFIG_DIR`.
-- `codex`: one Codex session `.jsonl` file, a session directory, or `CODEX_HOME/sessions`.
-- `opencode`: JSON stdout from `opencode run --format=json`.
-- `gemini-cli` / `antigravity-cli`: `*.trajectory.jsonl` or `*.trajectory.json`.
-- `swe-agent` / `mini-swe-agent`: native trajectory JSON files.
-- `openhands`: OpenHands `sessions/*/events/*.json` or completion JSON files.
-
-## Capture Requirements
-
-This tool extracts trajectories from files that the agent already wrote during
-its run. It cannot recover a complete trajectory if the agent was run without
-the native log/session output enabled or preserved.
-
-### Claude Code
+## Claude Code
 
 Already ran:
 
@@ -162,44 +95,25 @@ htextract \
   --summary
 ```
 
-You can also pass `CLAUDE_CONFIG_DIR` itself if it contains exactly one session
-to convert:
+You can also pass `CLAUDE_CONFIG_DIR` if it contains exactly one session:
 
 ```bash
 htextract --agent claude-code --source <CLAUDE_CONFIG_DIR> --summary
 ```
 
-To capture future runs:
-
-- Set `CLAUDE_CONFIG_DIR` to the agent log session directory before running
-  Claude Code, usually `<agent-dir>/sessions`.
-- Preserve session JSONL files under
-  `<agent-dir>/sessions/projects/<project>/*.jsonl`. Harbor uses
-  `projects/-app/*.jsonl` inside benchmark containers.
-
-Optional:
-
-- Run with `--output-format=stream-json --print` and tee stdout/stderr to
-  `<agent-dir>/claude-code.txt` if you want the final `total_cost_usd`.
-  Claude Code does not create this file by itself; Harbor creates it by teeing
-  the stream-json stdout.
-
-Harbor's run shape is:
+Claude Code records session JSONL by default. If you want an easy-to-find source
+directory for future runs, set `CLAUDE_CONFIG_DIR` before starting Claude Code:
 
 ```bash
-export CLAUDE_CONFIG_DIR=/logs/agent/sessions
-mkdir -p "$CLAUDE_CONFIG_DIR/projects/-app"
+export CLAUDE_CONFIG_DIR="$PWD/.claude-session"
 
-claude \
-  --verbose \
-  --output-format=stream-json \
-  --permission-mode=bypassPermissions \
-  --print -- "$INSTRUCTION" \
-  2>&1 </dev/null | tee /logs/agent/claude-code.txt
+claude --print -- "$INSTRUCTION"
+
+htextract --agent claude-code --source "$CLAUDE_CONFIG_DIR" --summary
 ```
 
-Reasoning is only present when Claude Code emits thinking blocks. To capture it,
-request thinking explicitly, for example:
+Reasoning only appears when Claude Code emits thinking blocks. For runs where
+you need `reasoning_content`, request thinking explicitly:
 
 ```bash
 claude \
@@ -210,24 +124,16 @@ claude \
   --print -- "$INSTRUCTION"
 ```
 
-### OpenCode
+`claude-code.txt` is optional. It is not created by Claude Code as a session log;
+it is just stdout captured from `--output-format=stream-json --print`, and this
+tool only uses it to fill `total_cost_usd` when present.
 
-Already ran:
+## OpenCode
 
-```bash
-htextract \
-  --agent opencode \
-  --source ./opencode.txt \
-  --summary
-```
+OpenCode needs a capture flag. If you did not save `opencode run --format=json`
+stdout, this tool cannot reconstruct a full trajectory after the fact.
 
-To capture future runs:
-
-- Run `opencode run` with `--format=json`.
-- Tee stdout/stderr to `<agent-dir>/opencode.txt`.
-- Include `--thinking` if you want reasoning blocks preserved in the stream.
-
-Harbor's run shape is:
+Run future sessions like this:
 
 ```bash
 opencode --model="$MODEL" run \
@@ -235,13 +141,26 @@ opencode --model="$MODEL" run \
   --thinking \
   --dangerously-skip-permissions \
   -- "$INSTRUCTION" \
-  2>&1 </dev/null | tee /logs/agent/opencode.txt
+  2>&1 | tee opencode.jsonl
 ```
 
-If your OpenCode stream omits the user prompt, pass `--instruction-path` to
-`htextract` or place `instruction.txt` beside the agent directory.
+Then extract:
 
-### Codex
+```bash
+htextract --agent opencode --source ./opencode.jsonl --summary
+```
+
+If your OpenCode stream omits the user prompt, pass the instruction file:
+
+```bash
+htextract \
+  --agent opencode \
+  --source ./opencode.jsonl \
+  --instruction-path ./instruction.txt \
+  --summary
+```
+
+## Codex
 
 Already ran:
 
@@ -252,44 +171,42 @@ htextract \
   --summary
 ```
 
-You can also pass a session directory or `CODEX_HOME/sessions` if it contains
-one unambiguous session:
+You can also pass a session directory or `CODEX_HOME/sessions` if it contains one
+unambiguous session:
 
 ```bash
 htextract --agent codex --source <CODEX_HOME>/sessions --summary
 ```
 
-To capture future runs:
-
-- Run `codex exec` with `--json`.
-- Use a dedicated `CODEX_HOME` during the run.
-- After Codex exits, copy `$CODEX_HOME/sessions` to `<agent-dir>/sessions`.
-- Tee stdout/stderr to `<agent-dir>/codex.txt` only if you want a human-readable
-  run log; the converter reads the session JSONL, not `codex.txt`.
-
-Harbor's run shape is:
+For future runs, use a dedicated `CODEX_HOME` so the session is easy to locate:
 
 ```bash
-export CODEX_HOME=/tmp/codex-home
+export CODEX_HOME="$PWD/.codex-session"
 
 codex exec \
   --dangerously-bypass-approvals-and-sandbox \
   --skip-git-repo-check \
   --model "$MODEL" \
   --json \
-  --enable unified_exec \
   -c model_reasoning_effort=high \
-  -- "$INSTRUCTION" \
-  2>&1 </dev/null | tee /logs/agent/codex.txt
+  -c model_reasoning_summary=auto \
+  -- "$INSTRUCTION"
 
-mkdir -p /logs/agent
-cp -R "$CODEX_HOME/sessions" /logs/agent/sessions
+htextract --agent codex --source "$CODEX_HOME/sessions" --summary
 ```
 
-To affect reasoning summaries, add for example
-`-c model_reasoning_summary=auto` or `-c model_reasoning_summary=detailed`.
+The converter reads Codex session JSONL files. Captured stdout such as
+`codex.txt` can be useful for humans, but it is not the trajectory source.
 
-## Notes
+## Other Agents
+
+Run `htextract --describe-agent <name>` for the exact native source to keep.
+Common examples:
+
+- `gemini-cli` / `antigravity-cli`: Gemini trajectory JSONL or JSON export.
+- `swe-agent` / `mini-swe-agent`: native trajectory JSON files.
+- `openhands`: OpenHands session event files or completion JSON files.
+- Agents that already emit ATIF: pass their `trajectory.json` as `--source`.
 
 Generated trajectories may include explicit `reasoning_content` when the source
 agent emitted it. Treat these files as sensitive artifacts.

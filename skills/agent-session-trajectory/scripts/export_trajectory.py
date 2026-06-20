@@ -29,6 +29,14 @@ UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
 
+HELP_EPILOG = """OpenCode:
+  OpenCode cannot be fully exported from default local history after a normal
+  run. You must capture stdout during the run:
+
+    opencode run --format=json --thinking -- "$INSTRUCTION" 2>&1 | tee opencode.jsonl
+    agent-session-trajectory --agent opencode --source ./opencode.jsonl --summary
+"""
+
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
@@ -177,6 +185,13 @@ def select_candidate(agent: str, candidates: list[Path], session_hint: str | Non
     selected = newest(existing)
     if selected:
         return selected
+    if agent == "opencode":
+        raise SystemExit(
+            "cannot export: could not find an OpenCode JSON capture in the current directory.\n"
+            "OpenCode cannot be fully reconstructed from default local history after a normal run.\n"
+            "Pass --source <opencode.jsonl> if you captured `opencode run --format=json`, or capture the next run with:\n"
+            '  opencode run --format=json --thinking -- "$INSTRUCTION" 2>&1 | tee opencode.jsonl'
+        )
     raise SystemExit(
         f"cannot export: could not auto-detect a {agent} source.\n"
         f"Pass --source <path> for the exact session, or run:\n"
@@ -261,7 +276,9 @@ def parse_args() -> argparse.Namespace:
             "Generate Harbor ATIF trajectory for an agent session/source artifact. "
             "Without --source, auto-detection is only available for codex, "
             "claude-code, and limited opencode captures."
-        )
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=HELP_EPILOG,
     )
     parser.add_argument("--agent", help="Agent name, for example codex, claude-code/cc, opencode, gemini-cli")
     parser.add_argument("--source", type=Path, help="Exact session/source file or directory")

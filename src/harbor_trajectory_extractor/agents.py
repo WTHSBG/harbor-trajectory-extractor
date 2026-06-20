@@ -109,8 +109,13 @@ AGENT_INPUTS: dict[str, AgentInput] = {
     "opencode": AgentInput(
         "opencode",
         ("OpenCode JSON stdout from `opencode run --format=json`",),
-        "opencode run --format=json stdout.",
         (
+            "OpenCode is not reconstructable from default local history after "
+            "the fact. This tool needs the stdout JSON stream captured during "
+            "the original `opencode run --format=json` invocation."
+        ),
+        (
+            "OpenCode must be captured at run time; this tool cannot fully export a normal OpenCode run after the fact if you did not save the JSON stream.",
             "Run opencode with run --format=json and tee stdout/stderr to a file, e.g. opencode.jsonl.",
             "Include --thinking if you want reasoning blocks preserved in the JSON stream.",
             "The converter reconstructs the user turn from the stream when present; if your stream omits it, pass --instruction-path.",

@@ -87,6 +87,10 @@ htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.js
 htextract --agent opencode --source ./opencode.jsonl --summary
 ```
 
+OpenCode is the important exception: `./opencode.jsonl` must be a stdout JSON
+stream captured during `opencode run --format=json`. A normal OpenCode run that
+was not captured this way cannot be fully reconstructed after the fact.
+
 2. The agent has not run yet: what must I enable before running it?
 
 ```bash
@@ -224,8 +228,16 @@ tool only uses it to fill `total_cost_usd` when present.
 
 ## OpenCode
 
-OpenCode needs a capture flag. If you did not save `opencode run --format=json`
-stdout, this tool cannot reconstruct a full trajectory after the fact.
+OpenCode needs a capture flag before the run starts. If you did not save
+`opencode run --format=json` stdout, this tool cannot reconstruct a full
+trajectory after the fact from default OpenCode local history.
+
+There are only two usable OpenCode cases:
+
+- Already ran with JSON capture: pass that saved `opencode.jsonl` or
+  `opencode.txt` with `--source`.
+- Not run yet: run OpenCode with `run --format=json` and tee stdout/stderr to a
+  file first.
 
 Run future sessions like this:
 

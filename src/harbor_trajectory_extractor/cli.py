@@ -32,6 +32,8 @@ HELP_EPILOG = """Workflows:
     htextract --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
     htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
     htextract --agent opencode --source ./opencode.jsonl --summary
+    # OpenCode only works here if ./opencode.jsonl was captured during
+    # `opencode run --format=json`; default OpenCode history is not enough.
 
   Agent has not run yet:
     htextract --describe-agent opencode

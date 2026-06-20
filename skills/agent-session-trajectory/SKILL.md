@@ -68,9 +68,12 @@ agent-session-trajectory --describe-agent codex
 - `claude-code`: can usually auto-detect the newest session under
   `$CLAUDE_CONFIG_DIR` or `~/.claude/projects`. Use `--source <session.jsonl>`
   for an exact session.
-- `opencode`: normally requires `--source` pointing at captured
-  `opencode run --format=json` stdout. If omitted, the script only checks the
-  current directory for obvious `opencode.jsonl` or `opencode.txt` files.
+- `opencode`: cannot be fully exported after a normal run unless the run's JSON
+  stdout was captured at run time. Require `--source` pointing at saved
+  `opencode run --format=json` output such as `opencode.jsonl` or
+  `opencode.txt`. If `--source` is omitted, the script only checks the current
+  directory for those obvious capture files; it does not recover default
+  OpenCode history.
 - Other supported agents: pass the exact native source path shown by
   `--describe-agent <agent>`.
 
@@ -90,7 +93,17 @@ Important defaults:
   predictable collection.
 - Claude Code writes session JSONL by default; set `CLAUDE_CONFIG_DIR` for a
   predictable collection directory.
-- OpenCode must be run with `run --format=json` and tee stdout to a file.
+- OpenCode must be run with `run --format=json` and tee stdout to a file before
+  extraction is possible. If the user already ran OpenCode without saving that
+  JSON stream, say the trajectory cannot be fully reconstructed and tell them
+  how to capture the next run.
+
+OpenCode capture example:
+
+```bash
+opencode run --format=json --thinking -- "$INSTRUCTION" 2>&1 | tee opencode.jsonl
+agent-session-trajectory --agent opencode --source ./opencode.jsonl --summary
+```
 
 ## Failure Handling
 

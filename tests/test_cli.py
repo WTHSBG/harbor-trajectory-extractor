@@ -84,6 +84,8 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         output = stdout.getvalue()
+        self.assertIn("opencode export <sessionID>", output)
+        self.assertIn("opencode-export.json", output)
         self.assertIn("opencode --source ./opencode.jsonl", output)
         self.assertIn("run --format=json", output)
         self.assertIn("--thinking", output)

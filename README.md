@@ -84,12 +84,15 @@ There are only two questions.
 ```bash
 htextract --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
 htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
-htextract --agent opencode --source ./opencode.jsonl --summary
+htextract --agent opencode --source ./opencode-export.json --summary
 ```
 
-OpenCode is the important exception: `./opencode.jsonl` must be a stdout JSON
-stream captured during `opencode run --format=json`. A normal OpenCode run that
-was not captured this way cannot be fully reconstructed after the fact.
+For OpenCode interactive sessions, first export the saved session:
+
+```bash
+opencode session list
+agent-session-trajectory --agent opencode --session <sessionID> --summary
+```
 
 2. The agent has not run yet: what must I enable before running it?
 
@@ -235,18 +238,27 @@ tool only uses it to fill `total_cost_usd` when present.
 
 ## OpenCode
 
-OpenCode needs a capture flag before the run starts. If you did not save
-`opencode run --format=json` stdout, this tool cannot reconstruct a full
-trajectory after the fact from default OpenCode local history.
+OpenCode interactive sessions are saved locally. For normal interactive use,
+the `agent-session-trajectory` skill wrapper can export a saved OpenCode
+session by id and convert it in one command:
 
-There are only two usable OpenCode cases:
+```bash
+opencode session list
+agent-session-trajectory --agent opencode --session <sessionID> --summary
+```
 
-- Already ran with JSON capture: pass that saved `opencode.jsonl` or
-  `opencode.txt` with `--source`.
-- Not run yet: run OpenCode with `run --format=json` and tee stdout/stderr to a
-  file first.
+Under the hood, the wrapper runs `opencode export <sessionID>` and feeds the
+export JSON into `htextract`. You can do the same manually:
 
-Run future sessions like this:
+```bash
+opencode export <sessionID> > opencode-export.json
+htextract --agent opencode --source ./opencode-export.json --summary
+```
+
+`opencode export` JSON contains `messages[].parts[]`, including plaintext
+`reasoning` parts when the model/provider emitted them.
+
+For non-interactive one-shot runs, you can still capture stdout directly:
 
 ```bash
 opencode --model="$MODEL" run \
@@ -263,7 +275,7 @@ Then extract:
 htextract --agent opencode --source ./opencode.jsonl --summary
 ```
 
-If your OpenCode stream omits the user prompt, pass the instruction file:
+If your run-mode JSONL stream omits the user prompt, pass the instruction file:
 
 ```bash
 htextract \
@@ -271,6 +283,12 @@ htextract \
   --source ./opencode.jsonl \
   --instruction-path ./instruction.txt \
   --summary
+```
+
+You can inspect a saved interactive session without the helper by exporting it:
+
+```bash
+opencode export <sessionID> | jq '.messages[].parts[] | select(.type=="reasoning")'
 ```
 
 ## Codex

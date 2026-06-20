@@ -34,14 +34,13 @@ HELP_EPILOG = """Workflows:
   Agent already ran:
     htextract --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
     htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
-    htextract --agent opencode --source ./opencode.jsonl --summary
-    # OpenCode only works here if ./opencode.jsonl was captured during
-    # `opencode run --format=json`; default OpenCode history is not enough.
+    opencode export <sessionID> > opencode-export.json
+    htextract --agent opencode --source ./opencode-export.json --summary
 
   Agent has not run yet:
     htextract --describe-agent opencode
-    # Run the agent with the printed capture flags, then pass the produced file.
-    htextract --agent opencode --source ./opencode.jsonl --summary
+    # Use OpenCode interactively and export later, or capture run-mode JSONL.
+    htextract --agent opencode --source ./opencode-export.json --summary
 
 Use --describe-agent <agent> before running cc/opencode/codex to see exactly
 which files are available by default and which flags you must add before a run.

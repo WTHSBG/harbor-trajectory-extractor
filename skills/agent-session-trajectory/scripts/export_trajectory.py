@@ -9,6 +9,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Iterable
 
@@ -30,8 +31,18 @@ UUID_RE = re.compile(
 )
 
 HELP_EPILOG = """OpenCode:
-  OpenCode cannot be fully exported from default local history after a normal
-  run. You must capture stdout during the run:
+  For normal interactive OpenCode usage, pass the session id and this script
+  will run `opencode export <sessionID>` automatically:
+
+    opencode session list
+    agent-session-trajectory --agent opencode --session <sessionID> --summary
+
+  You can also export manually and pass the JSON file:
+
+    opencode export <sessionID> > opencode-export.json
+    agent-session-trajectory --agent opencode --source ./opencode-export.json --summary
+
+  For one-shot run-mode usage, capture JSONL directly:
 
     opencode run --format=json --thinking -- "$INSTRUCTION" 2>&1 | tee opencode.jsonl
     agent-session-trajectory --agent opencode --source ./opencode.jsonl --summary
@@ -123,6 +134,13 @@ def iter_json_lines(path: Path, *, limit: int = 500) -> Iterable[dict]:
         return
 
 
+def read_json(path: Path) -> object | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def sanitize(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip())
     cleaned = cleaned.strip(".-")
@@ -157,12 +175,48 @@ def find_claude_source(session_hint: str | None) -> Path:
 
 
 def find_opencode_source(session_hint: str | None) -> Path:
+    if session_hint:
+        return export_opencode_session(session_hint)
+
     cwd = Path.cwd()
-    names = ["opencode.jsonl", "opencode.txt"]
+    names = ["opencode-export.json", "opencode.jsonl", "opencode.txt"]
     candidates = [cwd / name for name in names]
+    candidates.extend(cwd.glob("opencode-export*.json"))
+    candidates.extend(cwd.glob("*opencode-export*.json"))
+    candidates.extend(cwd.glob("opencode-*.json"))
     candidates.extend(cwd.glob("*.opencode.jsonl"))
     candidates.extend(cwd.glob("opencode-*.jsonl"))
     return select_candidate("opencode", candidates, session_hint)
+
+
+def export_opencode_session(session_id: str) -> Path:
+    opencode = shutil.which("opencode")
+    if not opencode:
+        raise SystemExit(
+            "cannot export: `opencode` was not found on PATH.\n"
+            "Install OpenCode or pass --source <opencode-export.json>."
+        )
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="agent-session-trajectory-opencode-"))
+    output = tmp_dir / f"opencode-export-{sanitize(session_id)}.json"
+    result = subprocess.run(
+        [opencode, "export", session_id],
+        cwd=Path.cwd(),
+        env=os.environ.copy(),
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        raise SystemExit(
+            f"cannot export: `opencode export {session_id}` failed.\n"
+            f"{stderr or result.stdout.strip() or 'No error output.'}\n"
+            "Run `opencode session list` to verify the session id, or pass "
+            "--source <opencode-export.json>."
+        )
+
+    output.write_text(result.stdout, encoding="utf-8")
+    return output
 
 
 def select_candidate(agent: str, candidates: list[Path], session_hint: str | None) -> Path:
@@ -187,9 +241,12 @@ def select_candidate(agent: str, candidates: list[Path], session_hint: str | Non
         return selected
     if agent == "opencode":
         raise SystemExit(
-            "cannot export: could not find an OpenCode JSON capture in the current directory.\n"
-            "OpenCode cannot be fully reconstructed from default local history after a normal run.\n"
-            "Pass --source <opencode.jsonl> if you captured `opencode run --format=json`, or capture the next run with:\n"
+            "cannot export: could not find an OpenCode export/capture in the current directory.\n"
+            "For an interactive session, run:\n"
+            "  opencode session list\n"
+            "  opencode export <sessionID> > opencode-export.json\n"
+            "  agent-session-trajectory --agent opencode --source ./opencode-export.json --summary\n"
+            "For a one-shot run, capture JSONL with:\n"
             '  opencode run --format=json --thinking -- "$INSTRUCTION" 2>&1 | tee opencode.jsonl'
         )
     raise SystemExit(
@@ -217,6 +274,11 @@ def extract_session_id(agent: str, source: Path) -> str:
         return source.stem
 
     if agent == "opencode":
+        exported = read_json(source)
+        if isinstance(exported, dict):
+            info = exported.get("info")
+            if isinstance(info, dict) and isinstance(info.get("id"), str):
+                return info["id"]
         for event in iter_json_lines(source):
             session_id = event.get("sessionID")
             if isinstance(session_id, str) and session_id:
@@ -264,7 +326,7 @@ def run_htextract(
             "Next steps:\n"
             f"  1. Verify the source exists and is the native artifact for {agent}.\n"
             f"  2. Run: {Path(__file__).name} --describe-agent {agent}\n"
-            "  3. If the agent has not been captured yet, rerun it with the described capture flags.",
+            "  3. For OpenCode interactive sessions, export with `opencode export <sessionID>`; for run-mode, capture JSONL.",
             file=sys.stderr,
         )
     return result.returncode
@@ -276,14 +338,21 @@ def parse_args() -> argparse.Namespace:
             "Generate Harbor ATIF trajectory for an agent session/source artifact. "
             "Currently supported agents: codex, claude-code, opencode. "
             "Without --source, auto-detection is only available for codex, "
-            "claude-code, and limited opencode captures."
+            "claude-code, and OpenCode session ids or local captures."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=HELP_EPILOG,
     )
     parser.add_argument("--agent", help="Agent name. Currently supported: codex, claude-code/cc, opencode")
     parser.add_argument("--source", type=Path, help="Exact session/source file or directory")
-    parser.add_argument("--session", help="Session id or filename substring to select")
+    parser.add_argument(
+        "--session",
+        help=(
+            "Session id or filename substring to select. For --agent opencode, "
+            "this may be an OpenCode session id; the script will run "
+            "`opencode export <sessionID>` automatically."
+        ),
+    )
     parser.add_argument("--output", type=Path, help="Exact output path")
     parser.add_argument(
         "--output-dir",

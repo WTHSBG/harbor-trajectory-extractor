@@ -43,7 +43,8 @@ agent-session-trajectory --agent codex --summary
 agent-session-trajectory --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
 agent-session-trajectory --agent claude-code --summary
 agent-session-trajectory --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
-agent-session-trajectory --agent opencode --source ./opencode.jsonl --summary
+agent-session-trajectory --agent opencode --session <sessionID> --summary
+agent-session-trajectory --agent opencode --source ./opencode-export.json --summary
 ```
 
 Use `--output-dir <dir>` to choose the directory. Use `--output <file>` to
@@ -72,12 +73,14 @@ agent-session-trajectory --describe-agent codex
 - `claude-code`: can usually auto-detect the newest session under
   `$CLAUDE_CONFIG_DIR` or `~/.claude/projects`. Use `--source <session.jsonl>`
   for an exact session.
-- `opencode`: cannot be fully exported after a normal run unless the run's JSON
-  stdout was captured at run time. Require `--source` pointing at saved
-  `opencode run --format=json` output such as `opencode.jsonl` or
-  `opencode.txt`. If `--source` is omitted, the script only checks the current
-  directory for those obvious capture files; it does not recover default
-  OpenCode history.
+- `opencode`: normal interactive sessions are saved locally by OpenCode. Export
+  one automatically with `agent-session-trajectory --agent opencode --session
+  <sessionID>`. The script runs `opencode export <sessionID>` internally and
+  converts the exported JSON. You can also export manually with `opencode export
+  <sessionID> > opencode-export.json` and pass that JSON file with `--source`.
+  The script can also read `opencode run --format=json` JSONL captures such as
+  `opencode.jsonl` or `opencode.txt`. If `--source` and `--session` are omitted,
+  it only checks the current directory for obvious export/capture files.
 - Other agents are not currently supported by this tool, even if Harbor has
   adapters for them.
 
@@ -97,12 +100,26 @@ Important defaults:
   predictable collection.
 - Claude Code writes session JSONL by default; set `CLAUDE_CONFIG_DIR` for a
   predictable collection directory.
-- OpenCode must be run with `run --format=json` and tee stdout to a file before
-  extraction is possible. If the user already ran OpenCode without saving that
-  JSON stream, say the trajectory cannot be fully reconstructed and tell them
-  how to capture the next run.
+- OpenCode interactive sessions can be exported after the fact with
+  `opencode export <sessionID> > opencode-export.json`; use that route for
+  normal interactive usage. `opencode run --format=json --thinking` remains a
+  useful direct-capture option for one-shot runs.
 
-OpenCode capture example:
+OpenCode interactive export example:
+
+```bash
+opencode session list
+agent-session-trajectory --agent opencode --session <sessionID> --summary
+```
+
+Manual OpenCode export example:
+
+```bash
+opencode export <sessionID> > opencode-export.json
+agent-session-trajectory --agent opencode --source ./opencode-export.json --summary
+```
+
+OpenCode direct-capture example:
 
 ```bash
 opencode run --format=json --thinking -- "$INSTRUCTION" 2>&1 | tee opencode.jsonl

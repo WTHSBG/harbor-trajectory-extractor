@@ -122,13 +122,14 @@ def _prepare_claude_code_source(source: Path) -> PreparedSource:
 
 
 def _prepare_opencode_source(source: Path) -> PreparedSource:
-    """Accept opencode's JSON stdout file or a directory containing opencode.txt."""
+    """Accept opencode export JSON, run JSONL, or a directory containing opencode.txt."""
     if source.is_dir():
         if (source / "opencode.txt").is_file():
             return PreparedSource(work_dir=source)
         raise SourcePreparationError(
-            "OpenCode --source must be the JSON stdout file from "
-            "`opencode run --format=json`, or a directory containing opencode.txt."
+            "OpenCode --source must be `opencode export <sessionID>` JSON, "
+            "`opencode run --format=json` JSONL, or a directory containing "
+            "opencode.txt."
         )
 
     cleanup, work_dir = _new_work_dir()

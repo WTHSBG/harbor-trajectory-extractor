@@ -62,20 +62,24 @@ AGENT_INPUTS: dict[str, AgentInput] = {
     ),
     "opencode": AgentInput(
         "opencode",
-        ("OpenCode JSON stdout from `opencode run --format=json`",),
         (
-            "OpenCode is not reconstructable from default local history after "
-            "the fact. This tool needs the stdout JSON stream captured during "
-            "the original `opencode run --format=json` invocation."
+            "OpenCode export JSON from `opencode export <sessionID>`",
+            "OpenCode JSON stdout from `opencode run --format=json`",
         ),
         (
-            "OpenCode must be captured at run time; this tool cannot fully export a normal OpenCode run after the fact if you did not save the JSON stream.",
-            "Run opencode with run --format=json and tee stdout/stderr to a file, e.g. opencode.jsonl.",
-            "Include --thinking if you want reasoning blocks preserved in the JSON stream.",
-            "The converter reconstructs the user turn from the stream when present; if your stream omits it, pass --instruction-path.",
+            "OpenCode interactive sessions are saved locally. Export them with "
+            "`opencode export <sessionID> > opencode-export.json`, then pass "
+            "that JSON file as --source."
+        ),
+        (
+            "If you are using the agent-session-trajectory skill wrapper, run `agent-session-trajectory --agent opencode --session <sessionID>` to export and convert in one step.",
+            "Already ran interactively: list sessions with `opencode session list`, then run `opencode export <sessionID> > opencode-export.json`.",
+            "Not run yet: you can either use OpenCode normally and export afterwards, or capture `opencode run --format=json --thinking` stdout directly.",
+            "Reasoning is preserved when the OpenCode session/export contains `reasoning` parts; for run-mode JSONL, include --thinking.",
+            "If a run-mode JSONL stream omits the user prompt, pass --instruction-path.",
         ),
         source_examples=(
-            "htextract --agent opencode --source ./opencode.txt --summary",
+            "opencode export <sessionID> > opencode-export.json && htextract --agent opencode --source ./opencode-export.json --summary",
             "htextract --agent opencode --source ./opencode.jsonl --instruction-path ./instruction.txt --summary",
         ),
     ),

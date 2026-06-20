@@ -130,13 +130,21 @@ class OpenCode(BaseInstalledAgent):
         return joined or None
 
     def _parse_stdout(self) -> list[dict[str, Any]]:
-        """Read and parse JSON lines from the opencode stdout file."""
+        """Read opencode JSONL output or ``opencode export`` JSON."""
         output_path = self.logs_dir / self._OUTPUT_FILENAME
         if not output_path.exists():
             return []
 
+        text = output_path.read_text()
+        try:
+            exported = json.loads(text)
+        except json.JSONDecodeError:
+            exported = None
+        if isinstance(exported, dict) and isinstance(exported.get("messages"), list):
+            return self._events_from_export(exported)
+
         events: list[dict[str, Any]] = []
-        for line in output_path.read_text().splitlines():
+        for line in text.splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -144,6 +152,47 @@ class OpenCode(BaseInstalledAgent):
                 events.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
+        return events
+
+    @staticmethod
+    def _events_from_export(exported: dict[str, Any]) -> list[dict[str, Any]]:
+        """Normalize ``opencode export`` JSON into run-stream-like events."""
+        events: list[dict[str, Any]] = []
+        for message in exported.get("messages", []):
+            if not isinstance(message, dict):
+                continue
+            info = message.get("info") if isinstance(message.get("info"), dict) else {}
+            parts = message.get("parts") if isinstance(message.get("parts"), list) else []
+            role = info.get("role")
+            timestamp = (info.get("time") or {}).get("created")
+            if role == "user":
+                events.append(
+                    {
+                        "type": "user",
+                        "timestamp": timestamp,
+                        "sessionID": info.get("sessionID"),
+                        "parts": parts,
+                    }
+                )
+                continue
+
+            for part in parts:
+                if not isinstance(part, dict):
+                    continue
+                part_type = part.get("type")
+                event_type = {
+                    "step-start": "step_start",
+                    "step-finish": "step_finish",
+                    "tool": "tool_use",
+                }.get(part_type, part_type)
+                events.append(
+                    {
+                        "type": event_type,
+                        "timestamp": timestamp,
+                        "sessionID": part.get("sessionID") or info.get("sessionID"),
+                        "part": part,
+                    }
+                )
         return events
 
     def _error_messages(self) -> list[str]:
@@ -220,7 +269,12 @@ class OpenCode(BaseInstalledAgent):
                     current_turn = None
                 continue
 
-            if current_turn is not None and etype in ("text", "reasoning", "tool_use"):
+            if current_turn is not None and etype in (
+                "text",
+                "reasoning",
+                "tool",
+                "tool_use",
+            ):
                 current_turn["parts"].append(event.get("part", {}))
 
         if current_turn is not None and current_turn["parts"]:

@@ -106,6 +106,83 @@ class VendoredBackendTest(unittest.TestCase):
             "Considering pod isolation strategies",
         )
 
+    def test_opencode_parses_exported_session_json(self) -> None:
+        activate_vendor_namespace()
+        from harbor.agents.installed.opencode import OpenCode
+
+        agent = object.__new__(OpenCode)
+        agent.model_name = "gpt-5.5"
+        agent._version = None
+        agent._instruction = None
+
+        events = agent._events_from_export(
+            {
+                "info": {"id": "ses_export"},
+                "messages": [
+                    {
+                        "info": {
+                            "role": "user",
+                            "sessionID": "ses_export",
+                            "time": {"created": 1781947179742},
+                        },
+                        "parts": [
+                            {
+                                "id": "prt_user",
+                                "messageID": "msg_user",
+                                "sessionID": "ses_export",
+                                "type": "text",
+                                "text": "Analyze the incident.",
+                            }
+                        ],
+                    },
+                    {
+                        "info": {
+                            "role": "assistant",
+                            "sessionID": "ses_export",
+                            "time": {"created": 1781947179756},
+                        },
+                        "parts": [
+                            {"type": "step-start", "sessionID": "ses_export"},
+                            {
+                                "type": "reasoning",
+                                "sessionID": "ses_export",
+                                "text": "Reasoning from exported session",
+                            },
+                            {
+                                "type": "text",
+                                "sessionID": "ses_export",
+                                "text": "结论：使用 opencode export。",
+                            },
+                            {
+                                "type": "step-finish",
+                                "sessionID": "ses_export",
+                                "tokens": {
+                                    "input": 10,
+                                    "output": 5,
+                                    "reasoning": 3,
+                                    "cache": {"read": 2, "write": 1},
+                                },
+                                "cost": 0.01,
+                            },
+                        ],
+                    },
+                ],
+            }
+        )
+        trajectory = agent._convert_events_to_trajectory(events)
+
+        self.assertIsNotNone(trajectory)
+        assert trajectory is not None
+        self.assertEqual(trajectory.session_id, "ses_export")
+        self.assertEqual(len(trajectory.steps), 2)
+        self.assertEqual(trajectory.steps[0].message, "Analyze the incident.")
+        self.assertEqual(
+            trajectory.steps[1].reasoning_content,
+            "Reasoning from exported session",
+        )
+        self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 12)
+        self.assertEqual(trajectory.final_metrics.total_completion_tokens, 5)
+
 
 if __name__ == "__main__":
     unittest.main()

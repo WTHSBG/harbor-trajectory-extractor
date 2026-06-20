@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "harbor-trajectory-extractor"
+version = "0.1.0"
+description = "Extract Harbor ATIF trajectory.json files from agent log directories."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "WTHSBG" }]
+dependencies = []
+
+[project.scripts]
+harbor-trajectory-extractor = "harbor_trajectory_extractor.cli:main"
+htextract = "harbor_trajectory_extractor.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

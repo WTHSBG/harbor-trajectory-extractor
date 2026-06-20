@@ -23,6 +23,7 @@ AGENT_ALIASES = {
     "open-code": "opencode",
 }
 
+AUTO_DISCOVER_AGENTS = {"codex", "claude-code", "opencode"}
 UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
@@ -32,11 +33,58 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def htextract_base_command() -> list[str]:
+    root = repo_root()
+    venv_htextract = root / "src" / "harbor_trajectory_extractor" / ".venv" / "bin" / "htextract"
+    if venv_htextract.exists():
+        return [str(venv_htextract)]
+
+    found = shutil.which("htextract")
+    if found:
+        return [found]
+
+    return [sys.executable, "-m", "harbor_trajectory_extractor.cli"]
+
+
+def htextract_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{repo_root() / 'src'}{os.pathsep}{env.get('PYTHONPATH', '')}"
+    return env
+
+
+def run_info_command(args: list[str]) -> int:
+    return subprocess.run(
+        htextract_base_command() + args,
+        cwd=Path.cwd(),
+        env=htextract_env(),
+        text=True,
+    ).returncode
+
+
+def supported_agents() -> set[str]:
+    result = subprocess.run(
+        htextract_base_command() + ["--list-agents"],
+        cwd=Path.cwd(),
+        env=htextract_env(),
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return set(AUTO_DISCOVER_AGENTS)
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
 def normalize_agent(raw: str) -> str:
-    agent = AGENT_ALIASES.get(raw.strip().lower())
-    if not agent:
-        valid = ", ".join(sorted(set(AGENT_ALIASES.values())))
-        raise SystemExit(f"unsupported agent {raw!r}; choose one of: {valid}")
+    requested = raw.strip().lower()
+    agent = AGENT_ALIASES.get(requested, requested)
+    known = supported_agents()
+    if agent not in known:
+        valid = ", ".join(sorted(known))
+        raise SystemExit(
+            f"cannot export: unsupported agent {raw!r}.\n"
+            f"Supported agents are:\n{valid}\n"
+            "Run this script with --list-agents to print the list again."
+        )
     return agent
 
 
@@ -112,12 +160,20 @@ def select_candidate(agent: str, candidates: list[Path], session_hint: str | Non
         selected = newest(matches)
         if selected:
             return selected
-        raise SystemExit(f"could not find {agent} session matching {session_hint!r}")
+        raise SystemExit(
+            f"cannot export: could not find {agent} session matching {session_hint!r}.\n"
+            f"Pass --source <path> for the exact session, or run:\n"
+            f"  {Path(__file__).name} --describe-agent {agent}"
+        )
 
     selected = newest(existing)
     if selected:
         return selected
-    raise SystemExit(f"could not auto-detect a {agent} source; pass --source")
+    raise SystemExit(
+        f"cannot export: could not auto-detect a {agent} source.\n"
+        f"Pass --source <path> for the exact session, or run:\n"
+        f"  {Path(__file__).name} --describe-agent {agent}"
+    )
 
 
 def extract_session_id(agent: str, source: Path) -> str:
@@ -152,19 +208,6 @@ def default_output(agent: str, source: Path, output_dir: Path) -> Path:
     return output_dir / f"{agent}-{session_id}-trajectory.json"
 
 
-def htextract_command() -> list[str]:
-    root = repo_root()
-    venv_htextract = root / "src" / "harbor_trajectory_extractor" / ".venv" / "bin" / "htextract"
-    if venv_htextract.exists():
-        return [str(venv_htextract)]
-
-    found = shutil.which("htextract")
-    if found:
-        return [found]
-
-    return [sys.executable, "-m", "harbor_trajectory_extractor.cli"]
-
-
 def run_htextract(
     *,
     agent: str,
@@ -174,7 +217,7 @@ def run_htextract(
     model: str | None,
     summary: bool,
 ) -> int:
-    cmd = htextract_command() + [
+    cmd = htextract_base_command() + [
         "--agent",
         agent,
         "--source",
@@ -189,20 +232,30 @@ def run_htextract(
     if summary:
         cmd.append("--summary")
 
-    env = os.environ.copy()
-    env["PYTHONPATH"] = f"{repo_root() / 'src'}{os.pathsep}{env.get('PYTHONPATH', '')}"
-    result = subprocess.run(cmd, cwd=Path.cwd(), env=env, text=True)
+    result = subprocess.run(cmd, cwd=Path.cwd(), env=htextract_env(), text=True)
+    if result.returncode != 0:
+        print(
+            "\nCannot export trajectory with the selected inputs.\n"
+            f"agent: {agent}\n"
+            f"source: {source}\n"
+            "Next steps:\n"
+            f"  1. Verify the source exists and is the native artifact for {agent}.\n"
+            f"  2. Run: {Path(__file__).name} --describe-agent {agent}\n"
+            "  3. If the agent has not been captured yet, rerun it with the described capture flags.",
+            file=sys.stderr,
+        )
     return result.returncode
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Generate Harbor ATIF trajectory for the current or most recent "
-            "codex, claude-code, or opencode session."
+            "Generate Harbor ATIF trajectory for an agent session/source artifact. "
+            "Without --source, auto-detection is only available for codex, "
+            "claude-code, and limited opencode captures."
         )
     )
-    parser.add_argument("--agent", required=True, help="codex, claude-code/cc, or opencode")
+    parser.add_argument("--agent", help="Agent name, for example codex, claude-code/cc, opencode, gemini-cli")
     parser.add_argument("--source", type=Path, help="Exact session/source file or directory")
     parser.add_argument("--session", help="Session id or filename substring to select")
     parser.add_argument("--output", type=Path, help="Exact output path")
@@ -215,11 +268,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--instruction-path", type=Path, help="Instruction file for opencode streams that omit the prompt")
     parser.add_argument("--model", help="Model name when the source artifact omits it")
     parser.add_argument("--summary", action="store_true", help="Print htextract summary")
+    parser.add_argument("--list-agents", action="store_true", help="List htextract-supported agents")
+    parser.add_argument("--describe-agent", help="Describe the source/capture requirements for one agent")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+
+    if args.list_agents:
+        return run_info_command(["--list-agents"])
+
+    if args.describe_agent:
+        return run_info_command(["--describe-agent", normalize_agent(args.describe_agent)])
+
+    if not args.agent:
+        raise SystemExit("cannot export: --agent is required unless using --list-agents or --describe-agent")
+
     agent = normalize_agent(args.agent)
 
     if args.source:
@@ -228,11 +293,21 @@ def main() -> int:
         source = find_codex_source(args.session)
     elif agent == "claude-code":
         source = find_claude_source(args.session)
-    else:
+    elif agent == "opencode":
         source = find_opencode_source(args.session)
+    else:
+        raise SystemExit(
+            f"cannot export: --source is required for {agent}.\n"
+            "Only codex, claude-code, and limited opencode captures support auto-detection.\n"
+            f"Run: {Path(__file__).name} --describe-agent {agent}"
+        )
 
     if not source.exists():
-        raise SystemExit(f"source does not exist: {source}")
+        raise SystemExit(
+            f"cannot export: source does not exist: {source}\n"
+            f"Run: {Path(__file__).name} --describe-agent {agent}\n"
+            "Then pass --source <path> for the exact session/source artifact."
+        )
 
     output = args.output.expanduser().resolve() if args.output else default_output(
         agent,

@@ -89,10 +89,14 @@ htextract --agent codex --source <session.jsonl> --output /tmp/trajectory.json
 This repo includes a local Codex skill at
 `skills/current-session-trajectory/`. It is not installed automatically; keep it
 in this repo or copy it into a Codex skills directory when you want another
-Codex session to generate the current session trajectory.
+Codex session to generate a Harbor ATIF trajectory from an agent session/source
+artifact.
 
-The skill's helper script auto-selects the newest current-session artifact when
-possible and writes this default filename in the current working directory:
+The skill's helper script can auto-select the newest local session for Codex,
+Claude Code, and limited OpenCode captures. For any exact session, or for any
+other supported agent, pass `--source`.
+
+The default output filename is written in the current working directory:
 
 ```text
 <agent>-<session>-trajectory.json
@@ -102,12 +106,24 @@ Examples:
 
 ```bash
 python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent codex --summary
+python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
 python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent claude-code --summary
 python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent opencode --source ./opencode.jsonl --summary
+python skills/current-session-trajectory/scripts/generate_current_trajectory.py --agent gemini-cli --source ./gemini-trajectory.jsonl --summary
 ```
 
 Use `--output-dir <dir>` to keep the generated default filename in another
 directory, or `--output <file>` to choose the exact path.
+
+To discover what a non-default agent needs:
+
+```bash
+python skills/current-session-trajectory/scripts/generate_current_trajectory.py --list-agents
+python skills/current-session-trajectory/scripts/generate_current_trajectory.py --describe-agent gemini-cli
+```
+
+When export is impossible, the script prints a `cannot export` message with the
+agent, source, and next command to run.
 
 ## Claude Code
 

@@ -61,6 +61,51 @@ class VendoredBackendTest(unittest.TestCase):
             self.assertIn("没有在运行。", output_text)
             self.assertNotIn("\\u6ca1", output_text)
 
+    def test_opencode_flushes_unfinished_stream_turn(self) -> None:
+        activate_vendor_namespace()
+        from harbor.agents.installed.opencode import OpenCode
+
+        agent = object.__new__(OpenCode)
+        agent.model_name = "gpt-5.5"
+        agent._version = None
+        agent._instruction = "Analyze the incident."
+
+        trajectory = agent._convert_events_to_trajectory(
+            [
+                {
+                    "type": "step_start",
+                    "timestamp": 1781946570898,
+                    "sessionID": "ses_test",
+                    "part": {"type": "step-start"},
+                },
+                {
+                    "type": "reasoning",
+                    "timestamp": 1781946580563,
+                    "sessionID": "ses_test",
+                    "part": {
+                        "type": "reasoning",
+                        "text": "Considering pod isolation strategies",
+                    },
+                },
+                {
+                    "type": "text",
+                    "timestamp": 1781946615870,
+                    "sessionID": "ses_test",
+                    "part": {"type": "text", "text": "结论：隔离构建机。"},
+                },
+            ]
+        )
+
+        self.assertIsNotNone(trajectory)
+        assert trajectory is not None
+        self.assertEqual(len(trajectory.steps), 2)
+        self.assertEqual(trajectory.steps[0].source, "user")
+        self.assertEqual(trajectory.steps[1].source, "agent")
+        self.assertEqual(
+            trajectory.steps[1].reasoning_content,
+            "Considering pod isolation strategies",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

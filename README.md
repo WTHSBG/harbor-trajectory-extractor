@@ -311,6 +311,15 @@ htextract --agent codex --source "$CODEX_HOME/sessions" --summary
 The converter reads Codex session JSONL files. Captured stdout such as
 `codex.txt` can be useful for humans, but it is not the trajectory source.
 
+Codex reasoning has an important limitation: this tool can only export plaintext
+reasoning summaries that Codex writes into the session JSONL. In current testing
+with `codex exec` and `model_reasoning_summary=auto`/`detailed`, Codex recorded
+`reasoning_output_tokens` and a `reasoning` event, but the actual reasoning body
+was stored as `encrypted_content` with an empty `summary`. Harbor's converter
+does not decrypt that field, and this standalone extractor follows the same
+behavior, so the generated trajectory will not contain `reasoning_content` for
+those Codex runs.
+
 ## Other Agents
 
 This tool currently supports only:
@@ -323,7 +332,16 @@ Other Harbor installed-agent adapters may exist in the vendored source tree,
 but they are not exposed or validated by this standalone extractor yet.
 
 Generated trajectories may include explicit `reasoning_content` when the source
-agent emitted it. Treat these files as sensitive artifacts.
+agent emitted plaintext reasoning. Verified behavior:
+
+- Claude Code can export plaintext `reasoning_content` when run with thinking
+  enabled, for example `--thinking enabled --thinking-display summarized`.
+- OpenCode can export plaintext `reasoning_content` when stdout is captured with
+  `opencode run --format=json --thinking`.
+- Codex may record reasoning token counts while storing the reasoning body only
+  as encrypted content; in that case `reasoning_content` is not available.
+
+Treat trajectory files as sensitive artifacts.
 
 ## Vendored Source
 

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import importlib
-import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from harbor_trajectory_extractor.agents import normalize_agent_name
+from harbor_trajectory_extractor.atif import read_json, write_json
 
 
 class VendoredBackendError(RuntimeError):
@@ -132,7 +132,6 @@ def extract_with_vendored_backend(
     instruction_path: Path | None,
 ) -> Path:
     agent_dir = agent_dir.resolve()
-    before = (agent_dir / "trajectory.json").read_bytes() if (agent_dir / "trajectory.json").exists() else None
 
     try:
         agent = _build_agent(
@@ -150,12 +149,5 @@ def extract_with_vendored_backend(
     if not produced.exists():
         raise VendoredBackendError("vendored Harbor converter did not produce trajectory.json")
 
-    after = produced.read_bytes()
-    if before is not None and after == before and output.resolve() == produced.resolve():
-        return output
-
-    output.parent.mkdir(parents=True, exist_ok=True)
-    if produced.resolve() != output.resolve():
-        shutil.copyfile(produced, output)
+    write_json(output, read_json(produced))
     return output
-

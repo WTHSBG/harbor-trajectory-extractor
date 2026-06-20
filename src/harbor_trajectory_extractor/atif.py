@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -60,9 +59,7 @@ def copy_existing_atif(source: Path, output: Path) -> bool:
     if not is_atif_trajectory(data):
         return False
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    if source.resolve() != output.resolve():
-        shutil.copyfile(source, output)
+    write_json(output, data)
     return True
 
 
@@ -87,4 +84,3 @@ def summarize(path: Path) -> dict[str, Any]:
         "tool_calls": tool_calls,
         "final_metrics": data.get("final_metrics"),
     }
-

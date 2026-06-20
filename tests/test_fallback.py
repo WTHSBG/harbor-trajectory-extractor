@@ -20,13 +20,16 @@ class FallbackTest(unittest.TestCase):
                     {
                         "schema_version": "ATIF-v1.7",
                         "agent": {"name": "nop", "version": "unknown"},
-                        "steps": [{"step_id": 1, "source": "user", "message": "hi"}],
+                        "steps": [{"step_id": 1, "source": "user", "message": "没有在运行。"}],
                     }
                 )
             )
             output = tmp_path / "out.json"
             self.assertTrue(extract_with_fallback(agent_dir, output))
             self.assertEqual(json.loads(output.read_text())["agent"]["name"], "nop")
+            output_text = output.read_text(encoding="utf-8")
+            self.assertIn("没有在运行。", output_text)
+            self.assertNotIn("\\u6ca1", output_text)
 
 
 if __name__ == "__main__":

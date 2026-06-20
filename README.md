@@ -1,7 +1,8 @@
 # harbor-trajectory-extractor
 
-Standalone CLI for extracting Harbor ATIF `trajectory.json` files from a Harbor
-trial `agent/` log directory.
+Standalone CLI for extracting Harbor ATIF `trajectory.json` files from native
+agent artifacts, such as Claude Code/Codex session JSONL files or OpenCode JSON
+stdout. It also accepts a Harbor trial `agent/` log directory for compatibility.
 
 The converter code is vendored from Harbor's installed-agent adapters and runs
 inside this project. It does not import the external `harbor` package, does not
@@ -48,12 +49,12 @@ First ask the tool what files it needs for that agent:
 htextract --describe-agent claude-code
 ```
 
-Then point it at the directory containing those captured files:
+Then point it at the native artifact:
 
 ```bash
 htextract \
   --agent claude-code \
-  --agent-dir jobs/some-job/some-trial/agent \
+  --source ~/.claude/projects/<project>/<session>.jsonl \
   --summary
 ```
 
@@ -62,9 +63,18 @@ Write the trajectory somewhere else:
 ```bash
 htextract \
   --agent codex \
-  --agent-dir /path/to/agent \
+  --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl \
   --output /tmp/trajectory.json \
   --model gpt-5.1
+```
+
+If you already have a Harbor trial log directory, use `--agent-dir` instead:
+
+```bash
+htextract \
+  --agent claude-code \
+  --agent-dir jobs/some-job/some-trial/agent \
+  --summary
 ```
 
 ### 2. Agent Has Not Run Yet
@@ -76,12 +86,12 @@ htextract --describe-agent opencode
 ```
 
 Run the agent with the printed runtime flags and log/session preservation steps.
-After the run finishes, extract from the captured agent directory:
+After the run finishes, extract from the native artifact:
 
 ```bash
 htextract \
   --agent opencode \
-  --agent-dir /path/to/agent \
+  --source /path/to/opencode.txt \
   --summary
 ```
 
@@ -128,9 +138,9 @@ collects metrics and does not create a trajectory.
 
 Run `htextract --describe-agent <name>` for exact patterns. Common examples:
 
-- `claude-code`: `sessions/projects/*/*.jsonl`, with `claude-code.txt` for final cost.
-- `codex`: `sessions/**/*.jsonl`.
-- `opencode`: `opencode.txt` from `opencode run --format=json`.
+- `claude-code`: one Claude Code session `.jsonl` file, or `CLAUDE_CONFIG_DIR`.
+- `codex`: one Codex session `.jsonl` file, a session directory, or `CODEX_HOME/sessions`.
+- `opencode`: JSON stdout from `opencode run --format=json`.
 - `gemini-cli` / `antigravity-cli`: `*.trajectory.jsonl` or `*.trajectory.json`.
 - `swe-agent` / `mini-swe-agent`: native trajectory JSON files.
 - `openhands`: OpenHands `sessions/*/events/*.json` or completion JSON files.
@@ -143,7 +153,23 @@ the native log/session output enabled or preserved.
 
 ### Claude Code
 
-Required:
+Already ran:
+
+```bash
+htextract \
+  --agent claude-code \
+  --source ~/.claude/projects/<project>/<session>.jsonl \
+  --summary
+```
+
+You can also pass `CLAUDE_CONFIG_DIR` itself if it contains exactly one session
+to convert:
+
+```bash
+htextract --agent claude-code --source <CLAUDE_CONFIG_DIR> --summary
+```
+
+To capture future runs:
 
 - Set `CLAUDE_CONFIG_DIR` to the agent log session directory before running
   Claude Code, usually `<agent-dir>/sessions`.
@@ -186,7 +212,16 @@ claude \
 
 ### OpenCode
 
-Required:
+Already ran:
+
+```bash
+htextract \
+  --agent opencode \
+  --source ./opencode.txt \
+  --summary
+```
+
+To capture future runs:
 
 - Run `opencode run` with `--format=json`.
 - Tee stdout/stderr to `<agent-dir>/opencode.txt`.
@@ -208,12 +243,29 @@ If your OpenCode stream omits the user prompt, pass `--instruction-path` to
 
 ### Codex
 
-Required:
+Already ran:
+
+```bash
+htextract \
+  --agent codex \
+  --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl \
+  --summary
+```
+
+You can also pass a session directory or `CODEX_HOME/sessions` if it contains
+one unambiguous session:
+
+```bash
+htextract --agent codex --source <CODEX_HOME>/sessions --summary
+```
+
+To capture future runs:
 
 - Run `codex exec` with `--json`.
 - Use a dedicated `CODEX_HOME` during the run.
 - After Codex exits, copy `$CODEX_HOME/sessions` to `<agent-dir>/sessions`.
-- Tee stdout/stderr to `<agent-dir>/codex.txt`.
+- Tee stdout/stderr to `<agent-dir>/codex.txt` only if you want a human-readable
+  run log; the converter reads the session JSONL, not `codex.txt`.
 
 Harbor's run shape is:
 

@@ -17,6 +17,11 @@ from harbor_trajectory_extractor.agents import (
 )
 from harbor_trajectory_extractor.atif import summarize
 from harbor_trajectory_extractor.fallback import extract_with_fallback
+from harbor_trajectory_extractor.sources import (
+    SourcePreparationError,
+    default_output_for_source,
+    prepare_source,
+)
 from harbor_trajectory_extractor.vendored import (
     VendoredBackendError,
     extract_with_vendored_backend,
@@ -28,12 +33,14 @@ BackendName = Literal["auto", "vendored", "fallback"]
 HELP_EPILOG = """Workflows:
   1. Agent already ran:
      htextract --describe-agent claude-code
-     htextract --agent claude-code --agent-dir jobs/<job>/<trial>/agent --summary
+     htextract --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
+     htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
+     htextract --agent opencode --source ./opencode.txt --summary
 
   2. Agent has not run yet:
      htextract --describe-agent opencode
-     # Run the agent with the printed capture requirements, preserving logs in <agent-dir>.
-     htextract --agent opencode --agent-dir <agent-dir> --summary
+     # Run the agent with the printed capture requirements.
+     htextract --agent opencode --source <native-log-or-dir> --summary
 
 Use --describe-agent <agent> before running cc/opencode/codex to see required
 runtime flags and post-run copy steps.
@@ -65,11 +72,12 @@ class ExtractRequest:
     adapter_kwargs: dict[str, Any]
     instruction_path: Path | None
     print_summary: bool
+    cleanup: Any | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Extract Harbor ATIF trajectory.json from captured agent logs.",
+        description="Extract Harbor ATIF trajectory.json from native agent artifacts.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=HELP_EPILOG,
     )
@@ -96,12 +104,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--agent-dir",
         type=Path,
-        help="Path to the captured agent log directory, e.g. a Harbor trial agent/ directory.",
+        help=(
+            "Path to a Harbor-shaped captured agent log directory, e.g. a "
+            "Harbor trial agent/ directory. Use --source for native files."
+        ),
+    )
+    parser.add_argument(
+        "--source",
+        type=Path,
+        help=(
+            "Native already-ran artifact path. Examples: Claude Code session "
+            ".jsonl, Codex session .jsonl or sessions/ directory, OpenCode "
+            "JSON stdout file."
+        ),
     )
     parser.add_argument(
         "--output",
         type=Path,
-        help="Output path. Defaults to <agent-dir>/trajectory.json.",
+        help=(
+            "Output path. Defaults to <agent-dir>/trajectory.json for "
+            "--agent-dir, or next to --source for direct native inputs."
+        ),
     )
     parser.add_argument(
         "--instruction-path",
@@ -145,7 +168,7 @@ def run_discovery_command(args: argparse.Namespace) -> int | None:
 
     There are two user situations this CLI must serve:
     - If the user already ran an agent, --describe-agent tells them which files
-      must exist under <agent-dir> before extraction can work.
+      can be passed directly through --source before extraction can work.
     - If the user has not run an agent yet, the same output tells them which
       runtime flags and copy/tee steps to use before coming back to extraction.
     """
@@ -177,11 +200,11 @@ def parse_adapter_kwargs(raw_json: str) -> dict[str, Any]:
 
 def build_extract_request(args: argparse.Namespace) -> ExtractRequest:
     """Validate extraction arguments and convert them into a typed request."""
-    if not args.agent and not args.agent_dir:
+    if not args.agent and not args.agent_dir and not args.source:
         raise UsageError(
             "No extraction command selected.\n\n"
             "If the agent already ran:\n"
-            "  htextract --agent <agent> --agent-dir <agent-dir> --summary\n\n"
+            "  htextract --agent <agent> --source <native-log-or-dir> --summary\n\n"
             "If the agent has not run yet:\n"
             "  htextract --describe-agent <agent>\n\n"
             "Use --help for full examples."
@@ -191,16 +214,33 @@ def build_extract_request(args: argparse.Namespace) -> ExtractRequest:
             "Missing --agent. Use --list-agents to see supported agents, "
             "or --describe-agent <agent> to see capture requirements."
         )
-    if not args.agent_dir:
+    if args.agent_dir and args.source:
+        raise UsageError("Use either --source or --agent-dir, not both.")
+    if not args.agent_dir and not args.source:
         raise UsageError(
-            "Missing --agent-dir. This should point to the directory containing "
-            f"captured {args.agent} logs; run "
-            f"`htextract --describe-agent {args.agent}` to see required files."
+            "Missing input path. If the agent already ran, pass the native "
+            f"artifact with `htextract --agent {args.agent} --source <path>`. "
+            f"If you have a Harbor trial log directory, use --agent-dir. Run "
+            f"`htextract --describe-agent {args.agent}` for examples."
         )
 
     agent = normalize_agent_name(args.agent)
-    agent_dir = args.agent_dir.resolve()
-    output = (args.output or (agent_dir / "trajectory.json")).resolve()
+    cleanup = None
+
+    if args.source:
+        source = args.source.resolve()
+        try:
+            prepared_source = prepare_source(agent, source)
+        except SourcePreparationError as exc:
+            raise UsageError(str(exc)) from exc
+        agent_dir = prepared_source.agent_dir.resolve()
+        cleanup = prepared_source.cleanup
+        default_output = default_output_for_source(source)
+    else:
+        agent_dir = args.agent_dir.resolve()
+        default_output = agent_dir / "trajectory.json"
+
+    output = (args.output or default_output).resolve()
 
     return ExtractRequest(
         agent=agent,
@@ -213,6 +253,7 @@ def build_extract_request(args: argparse.Namespace) -> ExtractRequest:
         if args.instruction_path
         else None,
         print_summary=args.summary,
+        cleanup=cleanup,
     )
 
 
@@ -290,6 +331,9 @@ def main(argv: list[str] | None = None) -> int:
     except ExtractionError as exc:
         print(exc, file=sys.stderr)
         return 1
+    finally:
+        if "request" in locals() and request.cleanup is not None:
+            request.cleanup.cleanup()
 
     print_result(output, summary=request.print_summary)
     return 0

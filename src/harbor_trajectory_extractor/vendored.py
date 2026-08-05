@@ -36,6 +36,7 @@ CLASS_MAP: dict[str, tuple[str, str]] = {
     "goose": ("harbor.agents.installed.goose", "Goose"),
     "hermes": ("harbor.agents.installed.hermes", "Hermes"),
     "kimi-cli": ("harbor.agents.installed.kimi_cli", "KimiCli"),
+    "kimi-code": ("harbor_trajectory_extractor.kimi_code", "KimiCode"),
     "mini-swe-agent": ("harbor.agents.installed.mini_swe_agent", "MiniSweAgent"),
     "openclaw": ("harbor.agents.installed.openclaw", "OpenClaw"),
     "opencode": ("harbor.agents.installed.opencode", "OpenCode"),

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 SUPPORTED_AGENTS: tuple[str, ...] = (
     "claude-code",
     "codex",
+    "kimi-code",
     "opencode",
 )
 
@@ -14,6 +15,9 @@ ALIASES: dict[str, str] = {
     "claude": "claude-code",
     "claude_code": "claude-code",
     "claudecode": "claude-code",
+    "kimi": "kimi-code",
+    "kimi_code": "kimi-code",
+    "kimicode": "kimi-code",
     "open-code": "opencode",
 }
 
@@ -58,6 +62,24 @@ AGENT_INPUTS: dict[str, AgentInput] = {
         source_examples=(
             "htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary",
             "htextract --agent codex --source <CODEX_HOME>/sessions --summary",
+        ),
+    ),
+    "kimi-code": AgentInput(
+        "kimi-code",
+        (
+            "Kimi Code wire.jsonl: ~/.kimi-code/sessions/<wd_dir>/session_<uuid>/agents/main/wire.jsonl",
+        ),
+        "Kimi Code wire.jsonl is authoritative; state.json next to it supplies session id, cwd, and title when present.",
+        (
+            "Kimi Code records sessions by default under ~/.kimi-code/sessions/wd_<dir>_<hash>/session_<uuid>/agents/main/wire.jsonl.",
+            "reasoning_content is exported when the session contains think parts (thinking enabled).",
+            "Pass the session directory, the wire.jsonl file, or a wd_* directory containing exactly one session as --source.",
+            "Subagent wire files (agents/agent-*/wire.jsonl) are not converted yet; only the main agent wire is exported.",
+        ),
+        optional_files=("state.json",),
+        source_examples=(
+            "htextract --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> --summary",
+            "htextract --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid>/agents/main/wire.jsonl --summary",
         ),
     ),
     "opencode": AgentInput(

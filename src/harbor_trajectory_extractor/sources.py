@@ -50,6 +50,8 @@ def prepare_source(agent: str, source: Path) -> PreparedSource:
         return _prepare_opencode_source(source)
     if normalized == "codex":
         return _prepare_codex_source(source)
+    if normalized == "kimi-code":
+        return _prepare_kimi_code_source(source)
     return _prepare_generic_source(normalized, source)
 
 
@@ -165,6 +167,73 @@ def _prepare_codex_source(source: Path) -> PreparedSource:
         "Codex --source must be a session .jsonl file, a session directory, "
         "or a CODEX_HOME/sessions directory."
     )
+
+
+def _prepare_kimi_code_source(source: Path) -> PreparedSource:
+    """Accept a Kimi Code wire.jsonl, session dir, agents/ or main/ dir, or a
+    directory containing exactly one session (e.g. a wd_* directory)."""
+    if source.is_file():
+        return _prepare_kimi_code_wire_file(source)
+
+    if (source / "agents" / "main" / "wire.jsonl").is_file():
+        # Full session directory: usable as-is.
+        return PreparedSource(work_dir=source)
+
+    cleanup, work_dir = _new_work_dir()
+
+    if (source / "main" / "wire.jsonl").is_file():
+        # The session's agents/ directory.
+        _link_or_copy_dir(source, work_dir / "agents")
+        _stage_optional_sibling(source.parent, work_dir, "state.json")
+        return PreparedSource(work_dir=work_dir, cleanup=cleanup)
+
+    if (source / "wire.jsonl").is_file() and not any(source.glob("session_*")):
+        # An agent main/ directory holding the wire file.
+        _link_or_copy_dir(source, work_dir / "agents" / "main")
+        _stage_optional_sibling(source.parent.parent, work_dir, "state.json")
+        return PreparedSource(work_dir=work_dir, cleanup=cleanup)
+
+    session_dirs = sorted(
+        {
+            path.parents[2]
+            for path in source.rglob("wire.jsonl")
+            if path.parent.name == "main" and path.parent.parent.name == "agents"
+        }
+    )
+    if len(session_dirs) == 1:
+        _link_or_copy_dir(session_dirs[0], work_dir / "session")
+        return PreparedSource(work_dir=work_dir / "session", cleanup=cleanup)
+
+    cleanup.cleanup()
+    if session_dirs:
+        raise SourcePreparationError(
+            "Kimi Code --source directory contains multiple sessions. Pass the "
+            "exact session_<uuid> directory or its agents/main/wire.jsonl file."
+        )
+    raise SourcePreparationError(
+        "Kimi Code --source must be a session_<uuid> directory, an "
+        "agents/main/wire.jsonl file, or a wd_* directory containing one session."
+    )
+
+
+def _prepare_kimi_code_wire_file(source: Path) -> PreparedSource:
+    cleanup, work_dir = _new_work_dir()
+    if source.parent.name == "main" and source.parent.parent.name == "agents":
+        # Preserve the session_<uuid> directory name so the session id can be
+        # recovered from the staged path even without a state.json.
+        session_dir = source.parents[2]
+        session_name = session_dir.name or "imported"
+        staged = work_dir / session_name
+        _link_or_copy_file(source, staged / "agents" / "main" / source.name)
+        state = session_dir / "state.json"
+        if state.is_file():
+            _link_or_copy_file(state, staged / "state.json")
+        return PreparedSource(work_dir=staged, cleanup=cleanup)
+    _link_or_copy_file(source, work_dir / "agents" / "main" / "wire.jsonl")
+    candidate = source.with_name("state.json")
+    if candidate.is_file():
+        _link_or_copy_file(candidate, work_dir / "state.json")
+    return PreparedSource(work_dir=work_dir, cleanup=cleanup)
 
 
 def _prepare_generic_source(agent: str, source: Path) -> PreparedSource:

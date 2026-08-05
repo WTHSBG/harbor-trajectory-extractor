@@ -21,11 +21,15 @@ AGENT_ALIASES = {
     "claude_code": "claude-code",
     "claude-code": "claude-code",
     "codex": "codex",
+    "kimi": "kimi-code",
+    "kimi-code": "kimi-code",
+    "kimi_code": "kimi-code",
+    "kimicode": "kimi-code",
     "opencode": "opencode",
     "open-code": "opencode",
 }
 
-AUTO_DISCOVER_AGENTS = {"codex", "claude-code", "opencode"}
+AUTO_DISCOVER_AGENTS = {"codex", "claude-code", "kimi-code", "opencode"}
 UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
@@ -46,6 +50,14 @@ HELP_EPILOG = """OpenCode:
 
     opencode run --format=json --thinking -- "$INSTRUCTION" 2>&1 | tee opencode.jsonl
     agent-session-trajectory --agent opencode --source ./opencode.jsonl --summary
+
+Kimi Code:
+  Kimi Code saves every session under ~/.kimi-code/sessions. Convert the
+  newest one automatically, or pass an exact session directory or wire file:
+
+    agent-session-trajectory --agent kimi-code --summary
+    agent-session-trajectory --agent kimi-code --session <sessionID> --summary
+    agent-session-trajectory --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid>/agents/main/wire.jsonl --summary
 """
 
 
@@ -174,6 +186,16 @@ def find_claude_source(session_hint: str | None) -> Path:
     return select_candidate("claude-code", candidates, session_hint)
 
 
+def find_kimi_code_source(session_hint: str | None) -> Path:
+    root = (
+        Path(os.environ.get("KIMI_CODE_HOME", Path.home() / ".kimi-code")) / "sessions"
+    )
+    candidates = (
+        sorted(root.glob("*/session_*/agents/main/wire.jsonl")) if root.exists() else []
+    )
+    return select_candidate("kimi-code", candidates, session_hint)
+
+
 def find_opencode_source(session_hint: str | None) -> Path:
     if session_hint:
         return export_opencode_session(session_hint)
@@ -225,7 +247,9 @@ def select_candidate(agent: str, candidates: list[Path], session_hint: str | Non
         matches = [
             path
             for path in existing
-            if session_hint in path.name or session_hint == extract_session_id(agent, path)
+            if session_hint in path.name
+            or session_hint in str(path)
+            or session_hint == extract_session_id(agent, path)
         ]
         selected = newest(matches)
         if selected:
@@ -285,6 +309,17 @@ def extract_session_id(agent: str, source: Path) -> str:
                 return session_id
         return source.stem
 
+    if agent == "kimi-code":
+        if source.parent.name == "main" and source.parent.parent.name == "agents":
+            state = read_json(source.parents[2] / "state.json")
+            if isinstance(state, dict) and isinstance(state.get("id"), str):
+                return state["id"].removeprefix("session_")
+        for part in source.parts:
+            if part.startswith("session_"):
+                return part.removeprefix("session_")
+        match = UUID_RE.search(str(source))
+        return match.group(0) if match else source.stem
+
     return source.stem
 
 
@@ -336,14 +371,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Generate Harbor ATIF trajectory for an agent session/source artifact. "
-            "Currently supported agents: codex, claude-code, opencode. "
+            "Currently supported agents: codex, claude-code, kimi-code, opencode. "
             "Without --source, auto-detection is only available for codex, "
-            "claude-code, and OpenCode session ids or local captures."
+            "claude-code, kimi-code, and OpenCode session ids or local captures."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=HELP_EPILOG,
     )
-    parser.add_argument("--agent", help="Agent name. Currently supported: codex, claude-code/cc, opencode")
+    parser.add_argument("--agent", help="Agent name. Currently supported: codex, claude-code/cc, kimi-code/kimi, opencode")
     parser.add_argument("--source", type=Path, help="Exact session/source file or directory")
     parser.add_argument(
         "--session",
@@ -388,12 +423,14 @@ def main() -> int:
         source = find_codex_source(args.session)
     elif agent == "claude-code":
         source = find_claude_source(args.session)
+    elif agent == "kimi-code":
+        source = find_kimi_code_source(args.session)
     elif agent == "opencode":
         source = find_opencode_source(args.session)
     else:
         raise SystemExit(
             f"cannot export: --source is required for {agent}.\n"
-            "Only codex, claude-code, and limited opencode captures support auto-detection.\n"
+            "Only codex, claude-code, kimi-code, and limited opencode captures support auto-detection.\n"
             f"Run: {Path(__file__).name} --describe-agent {agent}"
         )
 

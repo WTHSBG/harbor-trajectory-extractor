@@ -4,10 +4,11 @@
 
 Extract a completed agent session into Harbor's ATIF `trajectory.json` format.
 
-Current supported agents are `claude-code`, `codex`, and `opencode`. The input
-is that agent's own artifact from the run you just finished: a session JSONL
-file, a sessions directory, or a JSON stdout capture. Harbor is only the output
-schema here; you do not need to run the agent through Harbor.
+Current supported agents are `claude-code`, `codex`, `kimi-code`, and
+`opencode`. The input is that agent's own artifact from the run you just
+finished: a session JSONL file, a sessions directory, or a JSON stdout
+capture. Harbor is only the output schema here; you do not need to run the
+agent through Harbor.
 
 The converter code is vendored from Harbor's installed-agent adapters and runs
 inside this project. It does not shell out to `harbor` and does not require
@@ -86,6 +87,7 @@ There are only two questions.
 ```bash
 htextract --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
 htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
+htextract --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> --summary
 htextract --agent opencode --source ./opencode-export.json --summary
 ```
 
@@ -121,6 +123,7 @@ This currently prints only:
 ```text
 claude-code
 codex
+kimi-code
 opencode
 ```
 
@@ -155,9 +158,10 @@ The installer symlinks the skill by default, so future git pulls update the
 installed skill automatically. The skill helps another Codex session generate a
 Harbor ATIF trajectory from an agent session/source artifact.
 
-The skill's helper script supports only Codex, Claude Code, and OpenCode. It can
-auto-select the newest local session for Codex, Claude Code, and limited
-OpenCode captures. For any exact session, pass `--source`.
+The skill's helper script supports only Codex, Claude Code, Kimi Code, and
+OpenCode. It can auto-select the newest local session for Codex, Claude Code,
+Kimi Code, and limited OpenCode captures. For any exact session, pass
+`--source`.
 
 The default output filename is written in the current working directory:
 
@@ -171,6 +175,7 @@ Examples:
 agent-session-trajectory --agent codex --summary
 agent-session-trajectory --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
 agent-session-trajectory --agent claude-code --summary
+agent-session-trajectory --agent kimi-code --summary
 agent-session-trajectory --agent opencode --source ./opencode.jsonl --summary
 ```
 
@@ -237,6 +242,47 @@ claude \
 `claude-code.txt` is optional. It is not created by Claude Code as a session log;
 it is just stdout captured from `--output-format=stream-json --print`, and this
 tool only uses it to fill `total_cost_usd` when present.
+
+## Kimi Code
+
+Already ran:
+
+```bash
+htextract \
+  --agent kimi-code \
+  --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> \
+  --summary
+```
+
+Kimi Code records every session by default; no extra flags are needed before a
+run. Each session lives under
+`~/.kimi-code/sessions/<wd_dir>/session_<uuid>/`, where
+`agents/main/wire.jsonl` is the authoritative message stream and `state.json`
+supplies the session id, working directory, and title. You can pass any of
+these as `--source`:
+
+```bash
+# the session directory (uses agents/main/wire.jsonl + state.json)
+htextract --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> --summary
+
+# the wire file directly (state.json is picked up when it sits next to it)
+htextract --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid>/agents/main/wire.jsonl --summary
+
+# a wd_* directory, if it contains exactly one session
+htextract --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir> --summary
+```
+
+The skill wrapper can also auto-select the newest Kimi Code session:
+
+```bash
+agent-session-trajectory --agent kimi-code --summary
+agent-session-trajectory --agent kimi-code --session <sessionID> --summary
+```
+
+When thinking was enabled, the wire file contains plaintext `think` parts and
+the generated trajectory includes `reasoning_content`. Only the main agent
+wire is converted; subagent wire files (`agents/agent-*/wire.jsonl`, e.g.
+from swarm runs) are not exported yet.
 
 ## OpenCode
 
@@ -346,6 +392,7 @@ This tool currently supports only:
 
 - `claude-code`
 - `codex`
+- `kimi-code`
 - `opencode`
 
 Other Harbor installed-agent adapters may exist in the vendored source tree,
@@ -356,6 +403,8 @@ agent emitted plaintext reasoning. Verified behavior:
 
 - Claude Code can export plaintext `reasoning_content` when run with thinking
   enabled, for example `--thinking enabled --thinking-display summarized`.
+- Kimi Code can export plaintext `reasoning_content` when the session was run
+  with thinking enabled (wire `think` parts).
 - OpenCode can export plaintext `reasoning_content` when stdout is captured with
   `opencode run --format=json --thinking`.
 - Codex may record reasoning token counts while storing the reasoning body only

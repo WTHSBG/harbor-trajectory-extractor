@@ -29,11 +29,12 @@ from harbor_trajectory_extractor.vendored import (
 
 HELP_EPILOG = """Workflows:
   Supported agents:
-    claude-code, codex, opencode
+    claude-code, codex, kimi-code, opencode
 
   Agent already ran:
     htextract --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
     htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
+    htextract --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> --summary
     opencode export <sessionID> > opencode-export.json
     htextract --agent opencode --source ./opencode-export.json --summary
 
@@ -99,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Extraction inputs: these are required only when actually extracting.
     parser.add_argument(
         "--agent",
-        help="Agent name. Currently supported: claude-code, codex, opencode.",
+        help="Agent name. Currently supported: claude-code, codex, kimi-code, opencode.",
     )
     parser.add_argument(
         "--source",

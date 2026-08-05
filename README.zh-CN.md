@@ -4,7 +4,7 @@
 
 将已经完成的 agent 会话提取为 Harbor 的 ATIF `trajectory.json` 格式。
 
-当前支持的 agent 是 `claude-code`、`codex` 和 `opencode`。输入是该 agent 自己在刚完成的运行中留下的原生工件：session JSONL 文件、sessions 目录，或 JSON stdout 捕获文件。这里 Harbor 只是输出 schema；你不需要通过 Harbor 来启动 agent。
+当前支持的 agent 是 `claude-code`、`codex`、`kimi-code` 和 `opencode`。输入是该 agent 自己在刚完成的运行中留下的原生工件：session JSONL 文件、sessions 目录，或 JSON stdout 捕获文件。这里 Harbor 只是输出 schema；你不需要通过 Harbor 来启动 agent。
 
 转换代码来自 Harbor installed-agent adapters 的 vendored 版本，并在本项目内运行。它不会 shell out 到 `harbor`，也不要求本机安装 Harbor。
 
@@ -75,6 +75,7 @@ uv pip install --python .venv/bin/python -e .
 ```bash
 htextract --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
 htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
+htextract --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> --summary
 htextract --agent opencode --source ./opencode-export.json --summary
 ```
 
@@ -108,6 +109,7 @@ htextract --list-agents
 ```text
 claude-code
 codex
+kimi-code
 opencode
 ```
 
@@ -143,7 +145,7 @@ scripts/install-skill.sh
 
 安装器默认创建软链，因此之后 `git pull` 会自动更新已安装的 skill。这个 skill 可以帮助另一个 Codex session 从 agent session/source 工件生成 Harbor ATIF trajectory。
 
-skill 的 helper 脚本只支持 Codex、Claude Code 和 OpenCode。它可以为 Codex、Claude Code 自动选择最新的本地 session，也支持 OpenCode session id 或本地 capture。对于精确 session，可以传 `--source` 或 OpenCode 的 `--session`。
+skill 的 helper 脚本只支持 Codex、Claude Code、Kimi Code 和 OpenCode。它可以为 Codex、Claude Code、Kimi Code 自动选择最新的本地 session，也支持 OpenCode session id 或本地 capture。对于精确 session，可以传 `--source` 或 `--session`。
 
 默认输出文件名会写到当前工作目录：
 
@@ -157,6 +159,7 @@ skill 的 helper 脚本只支持 Codex、Claude Code 和 OpenCode。它可以为
 agent-session-trajectory --agent codex --summary
 agent-session-trajectory --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
 agent-session-trajectory --agent claude-code --summary
+agent-session-trajectory --agent kimi-code --summary
 agent-session-trajectory --agent opencode --session <sessionID> --summary
 agent-session-trajectory --agent opencode --source ./opencode.jsonl --summary
 ```
@@ -217,6 +220,39 @@ claude \
 ```
 
 `claude-code.txt` 是可选文件。它不是 Claude Code 创建的 session log，只是从 `--output-format=stream-json --print` 捕获的 stdout；本工具只会在它存在时用它补充 `total_cost_usd`。
+
+## Kimi Code
+
+已经跑完：
+
+```bash
+htextract \
+  --agent kimi-code \
+  --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> \
+  --summary
+```
+
+Kimi Code 默认就会记录每个 session，运行前不需要额外开启任何开关。每个 session 保存在 `~/.kimi-code/sessions/<wd_dir>/session_<uuid>/` 下，其中 `agents/main/wire.jsonl` 是权威的会话消息流，`state.json` 提供 session id、工作目录和标题。以下几种 source 都可以直接传：
+
+```bash
+# session 目录（使用 agents/main/wire.jsonl + state.json）
+htextract --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> --summary
+
+# 直接传 wire 文件（旁边的 state.json 会被自动带上）
+htextract --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid>/agents/main/wire.jsonl --summary
+
+# wd_* 目录，前提是里面只有一个 session
+htextract --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir> --summary
+```
+
+skill wrapper 也可以自动选择最新的 Kimi Code session：
+
+```bash
+agent-session-trajectory --agent kimi-code --summary
+agent-session-trajectory --agent kimi-code --session <sessionID> --summary
+```
+
+会话启用 thinking 时，wire 文件中会包含明文 `think` parts，生成的 trajectory 会带 `reasoning_content`。目前只转换主 agent 的 wire；子 agent 的 wire 文件（`agents/agent-*/wire.jsonl`，例如 swarm 运行）暂不导出。
 
 ## OpenCode
 
@@ -313,6 +349,7 @@ Codex reasoning 有一个重要限制：本工具只能导出 Codex 写入 sessi
 
 - `claude-code`
 - `codex`
+- `kimi-code`
 - `opencode`
 
 vendored source tree 中可能存在其他 Harbor installed-agent adapters，但这个独立 extractor 暂未暴露或验证它们。
@@ -320,6 +357,7 @@ vendored source tree 中可能存在其他 Harbor installed-agent adapters，但
 当 source agent 输出了明文 reasoning 时，生成的 trajectory 可能包含显式 `reasoning_content`。已验证行为：
 
 - Claude Code 在启用 thinking 时可以导出明文 `reasoning_content`，例如 `--thinking enabled --thinking-display summarized`。
+- Kimi Code 在会话启用 thinking 时（wire 中有 `think` parts）可以导出明文 `reasoning_content`。
 - OpenCode 在 session/export 中包含 `reasoning` parts 时可以导出明文 `reasoning_content`；run-mode JSONL 需要使用 `opencode run --format=json --thinking` 捕获。
 - Codex 可能只记录 reasoning token 计数，同时把 reasoning body 存为 encrypted content；这种情况下无法获得 `reasoning_content`。
 

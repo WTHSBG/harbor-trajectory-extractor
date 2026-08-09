@@ -1,6 +1,6 @@
 ---
 name: agent-session-trajectory
-description: Generate a Harbor ATIF trajectory file from a supported agent session/source artifact. Use when the user asks to export, create, extract, or generate trajectory.json/ATIF trajectory data for Codex, Claude Code/claudecode/cc, Kimi Code/kimi, or OpenCode sessions.
+description: Generate a Harbor ATIF trajectory file from a supported agent session/source artifact. Use when the user asks to export, create, extract, or generate trajectory.json/ATIF trajectory data for Codex, Claude Code/claudecode/cc, Hermes/hermers, Kimi Code/kimi, or OpenCode sessions.
 ---
 
 # Agent Session Trajectory
@@ -10,6 +10,7 @@ agent's native session/source artifact. Current supported agents are:
 
 - `codex`
 - `claude-code` / `cc` / `claudecode`
+- `hermes` / `hermers` / `hermes-agent`
 - `kimi-code` / `kimi`
 - `opencode`
 
@@ -28,7 +29,7 @@ python3 "${CODEX_HOME:-$HOME/.codex}/skills/agent-session-trajectory/scripts/exp
 ```
 
 If `--source` is omitted, the script can auto-detect the newest local session
-for `codex`, `claude-code`, `kimi-code`, and limited `opencode` captures. For
+for `codex`, `claude-code`, `hermes`, `kimi-code`, and limited `opencode` captures. For
 any specific session, pass `--source`.
 
 The script writes this default filename to the current working directory:
@@ -44,6 +45,8 @@ agent-session-trajectory --agent codex --summary
 agent-session-trajectory --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
 agent-session-trajectory --agent claude-code --summary
 agent-session-trajectory --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
+agent-session-trajectory --agent hermes --session <sessionID> --summary
+agent-session-trajectory --agent hermes --source ~/.hermes/state.db --session <sessionID> --summary
 agent-session-trajectory --agent kimi-code --summary
 agent-session-trajectory --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> --summary
 agent-session-trajectory --agent opencode --session <sessionID> --summary
@@ -55,7 +58,7 @@ choose the exact file path.
 
 ## Discoverability
 
-List supported agents. This should print only `claude-code`, `codex`,
+List supported agents. This should print only `claude-code`, `codex`, `hermes`,
 `kimi-code`, and `opencode`:
 
 ```bash
@@ -76,6 +79,14 @@ agent-session-trajectory --describe-agent codex
 - `claude-code`: can usually auto-detect the newest session under
   `$CLAUDE_CONFIG_DIR` or `~/.claude/projects`. Use `--source <session.jsonl>`
   for an exact session.
+- `hermes`: can auto-detect `$HERMES_HOME/state.db` (normally
+  `~/.hermes/state.db`). Use `--session <sessionID>` to select an exact or
+  uniquely-prefixed session. You can also pass `state.db`, its `HERMES_HOME`
+  directory, or a JSONL created by
+  `hermes sessions export <file> --session-id <sessionID>`. Plaintext
+  `reasoning`, `reasoning_content`,
+  `reasoning_details`, and reasoning summaries are normalized to ATIF
+  `reasoning_content`; encrypted-only provider state has no plaintext body.
 - `kimi-code`: can usually auto-detect the newest session under
   `~/.kimi-code/sessions` (override the root with `KIMI_CODE_HOME`). Only the
   main agent wire (`agents/main/wire.jsonl`) is converted; subagent wires are
@@ -100,6 +111,7 @@ If the agent has not run yet, check capture requirements first:
 ```bash
 htextract --describe-agent codex
 htextract --describe-agent claude-code
+htextract --describe-agent hermes
 htextract --describe-agent kimi-code
 htextract --describe-agent opencode
 ```
@@ -110,6 +122,10 @@ Important defaults:
   predictable collection.
 - Claude Code writes session JSONL by default; set `CLAUDE_CONFIG_DIR` for a
   predictable collection directory.
+- Hermes writes every session to `$HERMES_HOME/state.db` by default. Use
+  `/reasoning high` or `agent.reasoning_effort: high` with a reasoning-capable
+  model when you want plaintext thinking, then select the session with
+  `--session` or export it with `hermes sessions export`.
 - Kimi Code writes `agents/main/wire.jsonl` and `state.json` under
   `~/.kimi-code/sessions/<wd_dir>/session_<uuid>/` by default; no extra flags
   are needed before a run.

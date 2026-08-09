@@ -34,7 +34,7 @@ CLASS_MAP: dict[str, tuple[str, str]] = {
     "devin": ("harbor.agents.installed.devin", "Devin"),
     "gemini-cli": ("harbor.agents.installed.gemini_cli", "GeminiCli"),
     "goose": ("harbor.agents.installed.goose", "Goose"),
-    "hermes": ("harbor.agents.installed.hermes", "Hermes"),
+    "hermes": ("harbor_trajectory_extractor.hermes", "Hermes"),
     "kimi-cli": ("harbor.agents.installed.kimi_cli", "KimiCli"),
     "kimi-code": ("harbor_trajectory_extractor.kimi_code", "KimiCode"),
     "mini-swe-agent": ("harbor.agents.installed.mini_swe_agent", "MiniSweAgent"),

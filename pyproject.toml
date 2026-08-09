@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "harbor-trajectory-extractor"
 version = "0.1.0"
-description = "Extract Harbor ATIF trajectory.json files from Codex, Claude Code, and OpenCode logs."
+description = "Extract Harbor ATIF trajectory.json files from Codex, Claude Code, Hermes, Kimi Code, and OpenCode sessions."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }

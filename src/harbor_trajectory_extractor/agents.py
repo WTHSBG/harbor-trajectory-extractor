@@ -6,6 +6,7 @@ from dataclasses import dataclass
 SUPPORTED_AGENTS: tuple[str, ...] = (
     "claude-code",
     "codex",
+    "hermes",
     "kimi-code",
     "opencode",
 )
@@ -15,6 +16,9 @@ ALIASES: dict[str, str] = {
     "claude": "claude-code",
     "claude_code": "claude-code",
     "claudecode": "claude-code",
+    "hermes-agent": "hermes",
+    "hermes_agent": "hermes",
+    "hermers": "hermes",
     "kimi": "kimi-code",
     "kimi_code": "kimi-code",
     "kimicode": "kimi-code",
@@ -62,6 +66,29 @@ AGENT_INPUTS: dict[str, AgentInput] = {
         source_examples=(
             "htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary",
             "htextract --agent codex --source <CODEX_HOME>/sessions --summary",
+        ),
+    ),
+    "hermes": AgentInput(
+        "hermes",
+        (
+            "Hermes session export JSONL from `hermes sessions export`",
+            "Hermes state.db under $HERMES_HOME (normally ~/.hermes/state.db)",
+        ),
+        (
+            "Hermes state.db is the canonical store; a single-session JSONL "
+            "export is the most portable source artifact."
+        ),
+        (
+            "Hermes records full session history in $HERMES_HOME/state.db by default.",
+            "Export one session with `hermes sessions export hermes-session.jsonl --session-id <sessionID>`.",
+            "Pass state.db (or its HERMES_HOME directory) directly; use --session when it contains more than the desired session.",
+            "Plaintext thinking is exported as reasoning_content when Hermes persisted reasoning, reasoning_content, reasoning_details, or plaintext Codex reasoning summaries.",
+            "Use `/reasoning high` (or agent.reasoning_effort in config.yaml) with a reasoning-capable model; display hide/show does not remove already-persisted reasoning fields.",
+            "Encrypted/opaque provider reasoning has no plaintext body to export.",
+        ),
+        source_examples=(
+            "htextract --agent hermes --source ~/.hermes/state.db --session <sessionID> --summary",
+            "htextract --agent hermes --source ./hermes-session.jsonl --summary",
         ),
     ),
     "kimi-code": AgentInput(

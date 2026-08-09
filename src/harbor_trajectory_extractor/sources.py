@@ -50,6 +50,8 @@ def prepare_source(agent: str, source: Path) -> PreparedSource:
         return _prepare_opencode_source(source)
     if normalized == "codex":
         return _prepare_codex_source(source)
+    if normalized == "hermes":
+        return _prepare_hermes_source(source)
     if normalized == "kimi-code":
         return _prepare_kimi_code_source(source)
     return _prepare_generic_source(normalized, source)
@@ -214,6 +216,46 @@ def _prepare_kimi_code_source(source: Path) -> PreparedSource:
         "Kimi Code --source must be a session_<uuid> directory, an "
         "agents/main/wire.jsonl file, or a wd_* directory containing one session."
     )
+
+
+def _prepare_hermes_source(source: Path) -> PreparedSource:
+    """Accept a Hermes export, state.db, HERMES_HOME, or prepared directory."""
+    if source.is_dir():
+        if (source / "hermes-session.jsonl").is_file() or (source / "state.db").is_file():
+            return PreparedSource(work_dir=source)
+        exports = sorted(path for path in source.glob("*.jsonl") if path.is_file())
+        if len(exports) == 1:
+            cleanup, work_dir = _new_work_dir()
+            _link_or_copy_file(exports[0], work_dir / "hermes-session.jsonl")
+            return PreparedSource(work_dir=work_dir, cleanup=cleanup)
+        if len(exports) > 1:
+            raise SourcePreparationError(
+                "Hermes --source directory contains multiple JSONL files. Pass the "
+                "exact session export or a directory containing hermes-session.jsonl."
+            )
+        raise SourcePreparationError(
+            "Hermes --source directory must be HERMES_HOME containing state.db, "
+            "or contain one session export JSONL."
+        )
+
+    cleanup, work_dir = _new_work_dir()
+    if source.name == "state.db" or source.suffix == ".db":
+        _link_or_copy_file(source, work_dir / "state.db")
+        # A live Hermes database normally uses WAL mode. Stage its sidecars as
+        # well so committed messages that have not checkpointed into state.db
+        # are visible through the temporary converter layout.
+        for suffix in ("-wal", "-shm"):
+            sidecar = source.with_name(source.name + suffix)
+            if sidecar.is_file():
+                _link_or_copy_file(sidecar, work_dir / f"state.db{suffix}")
+    elif source.suffix.lower() in {".json", ".jsonl"}:
+        _link_or_copy_file(source, work_dir / "hermes-session.jsonl")
+    else:
+        cleanup.cleanup()
+        raise SourcePreparationError(
+            "Hermes --source file must be state.db or a JSON/JSONL session export."
+        )
+    return PreparedSource(work_dir=work_dir, cleanup=cleanup)
 
 
 def _prepare_kimi_code_wire_file(source: Path) -> PreparedSource:

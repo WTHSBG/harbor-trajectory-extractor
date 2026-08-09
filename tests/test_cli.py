@@ -47,7 +47,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(
             stdout.getvalue().splitlines(),
-            ["claude-code", "codex", "kimi-code", "opencode"],
+            ["claude-code", "codex", "hermes", "kimi-code", "opencode"],
         )
 
     def test_unsupported_agent_is_explicitly_rejected(self) -> None:
@@ -60,8 +60,21 @@ class CliTest(unittest.TestCase):
         output = stderr.getvalue()
         self.assertIn("unsupported agent: gemini-cli", output)
         self.assertIn(
-            "currently supported agents: claude-code, codex, kimi-code, opencode", output
+            "currently supported agents: claude-code, codex, hermes, kimi-code, opencode", output
         )
+
+    def test_hermes_describes_state_db_and_plaintext_reasoning(self) -> None:
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            exit_code = main(["--describe-agent", "hermers"])
+
+        self.assertEqual(exit_code, 0)
+        output = stdout.getvalue()
+        self.assertIn("Hermes state.db", output)
+        self.assertIn("hermes sessions export", output)
+        self.assertIn("reasoning_content", output)
+        self.assertIn("--session <sessionID>", output)
 
     def test_claude_code_describes_cost_log_as_optional(self) -> None:
         stdout = io.StringIO()
@@ -149,6 +162,29 @@ class CliTest(unittest.TestCase):
                 staged = request.work_dir / "sessions" / "imported" / source.name
                 self.assertTrue(staged.exists())
                 self.assertEqual(request.output, (source.parent / "trajectory.json").resolve())
+            finally:
+                if request.cleanup is not None:
+                    request.cleanup.cleanup()
+
+    def test_hermes_export_is_staged_with_session_selector(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "backup.jsonl"
+            source.write_text('{"id":"hermes-1","messages":[]}\n')
+            args = parse_args(
+                [
+                    "--agent",
+                    "hermers",
+                    "--source",
+                    str(source),
+                    "--session",
+                    "hermes-1",
+                ]
+            )
+            request = build_extract_request(args)
+            try:
+                self.assertEqual(request.agent, "hermes")
+                self.assertTrue((request.work_dir / "hermes-session.jsonl").exists())
+                self.assertEqual(request.adapter_kwargs, {"session_id": "hermes-1"})
             finally:
                 if request.cleanup is not None:
                     request.cleanup.cleanup()

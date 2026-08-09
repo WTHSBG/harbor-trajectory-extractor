@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,10 @@ AGENT_ALIASES = {
     "claude_code": "claude-code",
     "claude-code": "claude-code",
     "codex": "codex",
+    "hermes": "hermes",
+    "hermes-agent": "hermes",
+    "hermes_agent": "hermes",
+    "hermers": "hermes",
     "kimi": "kimi-code",
     "kimi-code": "kimi-code",
     "kimi_code": "kimi-code",
@@ -29,7 +34,7 @@ AGENT_ALIASES = {
     "open-code": "opencode",
 }
 
-AUTO_DISCOVER_AGENTS = {"codex", "claude-code", "kimi-code", "opencode"}
+AUTO_DISCOVER_AGENTS = {"codex", "claude-code", "hermes", "kimi-code", "opencode"}
 UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
@@ -58,6 +63,14 @@ Kimi Code:
     agent-session-trajectory --agent kimi-code --summary
     agent-session-trajectory --agent kimi-code --session <sessionID> --summary
     agent-session-trajectory --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid>/agents/main/wire.jsonl --summary
+
+Hermes:
+  Hermes stores sessions in $HERMES_HOME/state.db (normally
+  ~/.hermes/state.db). Convert the newest session or select one by id:
+
+    agent-session-trajectory --agent hermes --summary
+    agent-session-trajectory --agent hermes --session <sessionID> --summary
+    agent-session-trajectory --agent hermes --source ~/.hermes/state.db --session <sessionID> --summary
 """
 
 
@@ -196,6 +209,23 @@ def find_kimi_code_source(session_hint: str | None) -> Path:
     return select_candidate("kimi-code", candidates, session_hint)
 
 
+def find_hermes_source(session_hint: str | None) -> Path:
+    root = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+    state_db = root / "state.db"
+    if state_db.is_file():
+        # htextract resolves the exact/prefix session id inside the database.
+        return state_db
+
+    cwd = Path.cwd()
+    candidates = [cwd / "hermes-session.jsonl"]
+    candidates.extend(cwd.glob("hermes-session*.jsonl"))
+    candidates.extend(cwd.glob("*hermes*session*.jsonl"))
+    # The selector may refer to any row inside a multi-session export, so do
+    # not pre-filter candidate filenames by the first JSONL record. htextract
+    # performs the exact/prefix selection after loading the export.
+    return select_candidate("hermes", candidates, None)
+
+
 def find_opencode_source(session_hint: str | None) -> Path:
     if session_hint:
         return export_opencode_session(session_hint)
@@ -320,11 +350,65 @@ def extract_session_id(agent: str, source: Path) -> str:
         match = UUID_RE.search(str(source))
         return match.group(0) if match else source.stem
 
+    if agent == "hermes":
+        if source.name == "state.db":
+            return source.stem
+        for row in iter_json_lines(source):
+            session_id = row.get("id") or row.get("session_id")
+            if isinstance(session_id, str) and session_id:
+                return session_id
+        return source.stem
+
     return source.stem
 
 
-def default_output(agent: str, source: Path, output_dir: Path) -> Path:
-    session_id = sanitize(extract_session_id(agent, source))
+def extract_hermes_db_session_id(
+    source: Path, session_hint: str | None
+) -> str | None:
+    """Resolve the selected Hermes id for a descriptive default filename."""
+    if source.name != "state.db":
+        return None
+    try:
+        conn = sqlite3.connect(f"{source.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            if session_hint:
+                rows = conn.execute(
+                    "SELECT id FROM sessions "
+                    "WHERE id = ? OR substr(id, 1, length(?)) = ? "
+                    "ORDER BY started_at DESC LIMIT 2",
+                    (session_hint, session_hint, session_hint),
+                ).fetchall()
+                exact = [str(row[0]) for row in rows if row[0] == session_hint]
+                if exact:
+                    return exact[0]
+                if len(rows) == 1:
+                    return str(rows[0][0])
+                return None
+            row = conn.execute(
+                "SELECT id FROM sessions WHERE COALESCE(source, '') != 'tool' "
+                "ORDER BY COALESCE(ended_at, started_at) DESC, started_at DESC LIMIT 1"
+            ).fetchone()
+            return str(row[0]) if row else None
+        finally:
+            conn.close()
+    except (OSError, sqlite3.DatabaseError):
+        return None
+
+
+def default_output(
+    agent: str,
+    source: Path,
+    output_dir: Path,
+    session_hint: str | None = None,
+) -> Path:
+    resolved_hermes_id = (
+        extract_hermes_db_session_id(source, session_hint)
+        if agent == "hermes"
+        else None
+    )
+    session_id = sanitize(
+        resolved_hermes_id or session_hint or extract_session_id(agent, source)
+    )
     return output_dir / f"{agent}-{session_id}-trajectory.json"
 
 
@@ -335,6 +419,7 @@ def run_htextract(
     output: Path,
     instruction_path: Path | None,
     model: str | None,
+    session: str | None,
     summary: bool,
 ) -> int:
     cmd = htextract_base_command() + [
@@ -349,6 +434,8 @@ def run_htextract(
         cmd += ["--instruction-path", str(instruction_path)]
     if model:
         cmd += ["--model", model]
+    if session and agent == "hermes":
+        cmd += ["--session", session]
     if summary:
         cmd.append("--summary")
 
@@ -371,21 +458,21 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Generate Harbor ATIF trajectory for an agent session/source artifact. "
-            "Currently supported agents: codex, claude-code, kimi-code, opencode. "
+            "Currently supported agents: codex, claude-code, hermes, kimi-code, opencode. "
             "Without --source, auto-detection is only available for codex, "
-            "claude-code, kimi-code, and OpenCode session ids or local captures."
+            "claude-code, hermes, kimi-code, and OpenCode session ids or local captures."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=HELP_EPILOG,
     )
-    parser.add_argument("--agent", help="Agent name. Currently supported: codex, claude-code/cc, kimi-code/kimi, opencode")
+    parser.add_argument("--agent", help="Agent name. Currently supported: codex, claude-code/cc, hermes, kimi-code/kimi, opencode")
     parser.add_argument("--source", type=Path, help="Exact session/source file or directory")
     parser.add_argument(
         "--session",
         help=(
-            "Session id or filename substring to select. For --agent opencode, "
-            "this may be an OpenCode session id; the script will run "
-            "`opencode export <sessionID>` automatically."
+            "Session id or filename substring to select. For Hermes this "
+            "selects a row in state.db/JSONL. For OpenCode it may be a saved "
+            "session id; the script runs `opencode export <sessionID>`."
         ),
     )
     parser.add_argument("--output", type=Path, help="Exact output path")
@@ -425,12 +512,14 @@ def main() -> int:
         source = find_claude_source(args.session)
     elif agent == "kimi-code":
         source = find_kimi_code_source(args.session)
+    elif agent == "hermes":
+        source = find_hermes_source(args.session)
     elif agent == "opencode":
         source = find_opencode_source(args.session)
     else:
         raise SystemExit(
             f"cannot export: --source is required for {agent}.\n"
-            "Only codex, claude-code, kimi-code, and limited opencode captures support auto-detection.\n"
+            "Only codex, claude-code, hermes, kimi-code, and limited opencode captures support auto-detection.\n"
             f"Run: {Path(__file__).name} --describe-agent {agent}"
         )
 
@@ -445,6 +534,7 @@ def main() -> int:
         agent,
         source,
         args.output_dir.expanduser().resolve(),
+        args.session,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
 
@@ -460,6 +550,7 @@ def main() -> int:
         if args.instruction_path
         else None,
         model=args.model,
+        session=args.session,
         summary=args.summary,
     )
 

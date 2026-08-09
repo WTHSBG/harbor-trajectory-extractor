@@ -4,11 +4,11 @@
 
 Extract a completed agent session into Harbor's ATIF `trajectory.json` format.
 
-Current supported agents are `claude-code`, `codex`, `kimi-code`, and
-`opencode`. The input is that agent's own artifact from the run you just
-finished: a session JSONL file, a sessions directory, or a JSON stdout
-capture. Harbor is only the output schema here; you do not need to run the
-agent through Harbor.
+Current supported agents are `claude-code`, `codex`, `hermes`, `kimi-code`,
+and `opencode`. The input is that agent's own artifact from the run you just
+finished: a session JSONL file, a sessions directory/SQLite store, or a JSON
+stdout capture. Harbor is only the output schema here; you do not need to run
+the agent through Harbor.
 
 The converter code is vendored from Harbor's installed-agent adapters and runs
 inside this project. It does not shell out to `harbor` and does not require
@@ -87,6 +87,7 @@ There are only two questions.
 ```bash
 htextract --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
 htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
+htextract --agent hermes --source ~/.hermes/state.db --session <sessionID> --summary
 htextract --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> --summary
 htextract --agent opencode --source ./opencode-export.json --summary
 ```
@@ -123,6 +124,7 @@ This currently prints only:
 ```text
 claude-code
 codex
+hermes
 kimi-code
 opencode
 ```
@@ -158,10 +160,10 @@ The installer symlinks the skill by default, so future git pulls update the
 installed skill automatically. The skill helps another Codex session generate a
 Harbor ATIF trajectory from an agent session/source artifact.
 
-The skill's helper script supports only Codex, Claude Code, Kimi Code, and
+The skill's helper script supports Codex, Claude Code, Hermes, Kimi Code, and
 OpenCode. It can auto-select the newest local session for Codex, Claude Code,
-Kimi Code, and limited OpenCode captures. For any exact session, pass
-`--source`.
+Hermes, Kimi Code, and limited OpenCode captures. For any exact session, pass
+`--source` or `--session`.
 
 The default output filename is written in the current working directory:
 
@@ -175,6 +177,7 @@ Examples:
 agent-session-trajectory --agent codex --summary
 agent-session-trajectory --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
 agent-session-trajectory --agent claude-code --summary
+agent-session-trajectory --agent hermes --session <sessionID> --summary
 agent-session-trajectory --agent kimi-code --summary
 agent-session-trajectory --agent opencode --source ./opencode.jsonl --summary
 ```
@@ -242,6 +245,42 @@ claude \
 `claude-code.txt` is optional. It is not created by Claude Code as a session log;
 it is just stdout captured from `--output-format=stream-json --print`, and this
 tool only uses it to fill `total_cost_usd` when present.
+
+## Hermes
+
+Hermes automatically persists full sessions in `$HERMES_HOME/state.db`
+(normally `~/.hermes/state.db`). Convert the latest session in that database,
+or select a session by its id/prefix:
+
+```bash
+agent-session-trajectory --agent hermes --summary
+agent-session-trajectory --agent hermes --session <sessionID> --summary
+
+htextract \
+  --agent hermes \
+  --source ~/.hermes/state.db \
+  --session <sessionID> \
+  --summary
+```
+
+For a portable single-session artifact, use Hermes' native export command:
+
+```bash
+hermes sessions list
+hermes sessions export hermes-session.jsonl --session-id <sessionID>
+htextract --agent hermes --source ./hermes-session.jsonl --summary
+```
+
+Hermes stores plaintext model reasoning in message fields such as `reasoning`,
+`reasoning_content`, and `reasoning_details`; the extractor normalizes them to
+ATIF `reasoning_content`. Plaintext Codex reasoning summaries are also kept.
+Provider state that contains only encrypted/opaque reasoning is preserved by
+Hermes for replay but has no plaintext thinking body to export.
+
+To request more reasoning from a capable model, use `/reasoning high` during a
+Hermes session, or set `agent.reasoning_effort: high` in
+`~/.hermes/config.yaml`. The `show`/`hide` display choice is separate from
+session persistence.
 
 ## Kimi Code
 
@@ -392,6 +431,7 @@ This tool currently supports only:
 
 - `claude-code`
 - `codex`
+- `hermes`
 - `kimi-code`
 - `opencode`
 
@@ -403,6 +443,9 @@ agent emitted plaintext reasoning. Verified behavior:
 
 - Claude Code can export plaintext `reasoning_content` when run with thinking
   enabled, for example `--thinking enabled --thinking-display summarized`.
+- Hermes can export plaintext `reasoning_content` from its SQLite/JSONL
+  `reasoning`, `reasoning_content`, `reasoning_details`, and plaintext summary
+  fields when the selected model/provider emitted them.
 - Kimi Code can export plaintext `reasoning_content` when the session was run
   with thinking enabled (wire `think` parts).
 - OpenCode can export plaintext `reasoning_content` when stdout is captured with

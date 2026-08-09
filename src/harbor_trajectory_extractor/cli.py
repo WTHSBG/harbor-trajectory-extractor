@@ -29,11 +29,12 @@ from harbor_trajectory_extractor.vendored import (
 
 HELP_EPILOG = """Workflows:
   Supported agents:
-    claude-code, codex, kimi-code, opencode
+    claude-code, codex, hermes, kimi-code, opencode
 
   Agent already ran:
     htextract --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --summary
     htextract --agent codex --source ~/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl --summary
+    htextract --agent hermes --source ~/.hermes/state.db --session <sessionID> --summary
     htextract --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> --summary
     opencode export <sessionID> > opencode-export.json
     htextract --agent opencode --source ./opencode-export.json --summary
@@ -43,7 +44,7 @@ HELP_EPILOG = """Workflows:
     # Use OpenCode interactively and export later, or capture run-mode JSONL.
     htextract --agent opencode --source ./opencode-export.json --summary
 
-Use --describe-agent <agent> before running cc/opencode/codex to see exactly
+Use --describe-agent <agent> before running cc/opencode/codex/hermes to see exactly
 which files are available by default and which flags you must add before a run.
 """
 
@@ -100,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Extraction inputs: these are required only when actually extracting.
     parser.add_argument(
         "--agent",
-        help="Agent name. Currently supported: claude-code, codex, kimi-code, opencode.",
+        help="Agent name. Currently supported: claude-code, codex, hermes, kimi-code, opencode.",
     )
     parser.add_argument(
         "--source",
@@ -108,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Native artifact from the agent run. Examples: Claude Code session "
             ".jsonl or CLAUDE_CONFIG_DIR, Codex session .jsonl or sessions/ "
-            "directory, OpenCode JSON stdout file."
+            "directory, Hermes state.db/session export, OpenCode JSON stdout file."
         ),
     )
     parser.add_argument(
@@ -123,6 +124,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--instruction-path",
         type=Path,
         help="Optional instruction file used by adapters that need the prompt.",
+    )
+    parser.add_argument(
+        "--session",
+        help=(
+            "Optional session id or unique prefix. Used by Hermes when --source "
+            "is state.db or a multi-session JSONL export."
+        ),
     )
 
     parser.add_argument(
@@ -211,7 +219,7 @@ def build_extract_request(args: argparse.Namespace) -> ExtractRequest:
         work_dir=work_dir,
         output=output,
         model_name=args.model,
-        adapter_kwargs={},
+        adapter_kwargs={"session_id": args.session} if args.session else {},
         instruction_path=args.instruction_path.resolve()
         if args.instruction_path
         else None,

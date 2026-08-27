@@ -1,18 +1,21 @@
 ---
 name: agent-session-trajectory
-description: Generate a Harbor ATIF trajectory file from a supported agent session/source artifact. Use when the user asks to export, create, extract, or generate trajectory.json/ATIF trajectory data for Codex, Claude Code/claudecode/cc, Hermes/hermers, Kimi Code/kimi, or OpenCode sessions.
+description: Generate Harbor ATIF trajectories or training messages JSONL from supported agent session artifacts. Use for trajectory.json/ATIF export from Codex, Claude Code, Hermes, Kimi Code, or OpenCode, and for training-data export from Claude Code, Hermes, Kimi Code, or OpenCode.
 ---
 
 # Agent Session Trajectory
 
 Use this skill to produce a Harbor-standard ATIF trajectory from a supported
-agent's native session/source artifact. Current supported agents are:
+agent's native session/source artifact, or tool-aware training `messages` JSONL.
+Current ATIF agents are:
 
 - `codex`
 - `claude-code` / `cc` / `claudecode`
 - `hermes` / `hermers` / `hermes-agent`
 - `kimi-code` / `kimi`
 - `opencode`
+
+Training export supports every agent above except `codex`.
 
 ## Quick Start
 
@@ -56,6 +59,22 @@ agent-session-trajectory --agent opencode --source ./opencode-export.json --summ
 Use `--output-dir <dir>` to choose the directory. Use `--output <file>` to
 choose the exact file path.
 
+## Training JSONL
+
+Use `htextract-training` for training samples:
+
+```bash
+htextract-training --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --output claude-training.jsonl
+htextract-training --agent hermes --source ~/.hermes/state.db --session <sessionID> --output hermes-training.jsonl
+htextract-training --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> --output kimi-training.jsonl
+htextract-training --agent opencode --source ./opencode-export.json --output opencode-training.jsonl
+```
+
+Verify both the JSONL and its sibling `.report.json`. Claude Code and Kimi Code
+compact boundaries must remain separate samples. Claude `agent-acompact-*` and
+Kimi `context.apply_compaction` outputs use `sample_type=context_compaction`;
+never concatenate their pre-compact and post-compact contexts.
+
 ## Discoverability
 
 List supported agents. This should print only `claude-code`, `codex`, `hermes`,
@@ -88,9 +107,9 @@ agent-session-trajectory --describe-agent codex
   `reasoning_details`, and reasoning summaries are normalized to ATIF
   `reasoning_content`; encrypted-only provider state has no plaintext body.
 - `kimi-code`: can usually auto-detect the newest session under
-  `~/.kimi-code/sessions` (override the root with `KIMI_CODE_HOME`). Only the
-  main agent wire (`agents/main/wire.jsonl`) is converted; subagent wires are
-  not exported yet. Use `--session <sessionID>` to pick a specific session id,
+  `~/.kimi-code/sessions` (override the root with `KIMI_CODE_HOME`). ATIF export
+  currently converts the main agent wire; training export also converts
+  `agents/agent-*` subagents and compaction boundaries. Use `--session <sessionID>` to pick a specific session id,
   or `--source` with a `session_<uuid>` directory or its
   `agents/main/wire.jsonl`.
 - `opencode`: normal interactive sessions are saved locally by OpenCode. Export

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "harbor-trajectory-extractor"
 version = "0.1.0"
-description = "Extract Harbor ATIF trajectory.json files from Codex, Claude Code, Hermes, Kimi Code, and OpenCode sessions."
+description = "Extract Harbor ATIF trajectories and tool-aware training JSONL from agent sessions."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
@@ -18,6 +18,7 @@ dependencies = [
 [project.scripts]
 harbor-trajectory-extractor = "harbor_trajectory_extractor.cli:main"
 htextract = "harbor_trajectory_extractor.cli:main"
+htextract-training = "harbor_trajectory_extractor.training_cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

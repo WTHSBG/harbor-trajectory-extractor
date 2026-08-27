@@ -23,7 +23,8 @@ Installs the agent-session-trajectory Codex skill after git clone.
 
 Defaults:
   - installs htextract into ./.venv
-  - writes wrappers to ~/.local/bin/htextract and ~/.local/bin/agent-session-trajectory
+  - writes wrappers to ~/.local/bin/htextract, ~/.local/bin/htextract-training,
+    and ~/.local/bin/agent-session-trajectory
   - symlinks skills/agent-session-trajectory into ${CODEX_HOME:-~/.codex}/skills
 
 Options:
@@ -121,6 +122,12 @@ exec "$VENV_DIR/bin/htextract" "\$@"
 EOF
   chmod +x "$BIN_DIR/htextract"
 
+  cat > "$BIN_DIR/htextract-training" <<EOF
+#!/usr/bin/env sh
+exec "$VENV_DIR/bin/htextract-training" "\$@"
+EOF
+  chmod +x "$BIN_DIR/htextract-training"
+
   cat > "$BIN_DIR/agent-session-trajectory" <<EOF
 #!/usr/bin/env sh
 HTEXTRACT="$VENV_DIR/bin/htextract" exec python3 "$SKILL_DEST/scripts/export_trajectory.py" "\$@"
@@ -131,6 +138,7 @@ fi
 echo "Installed skill: $SKILL_DEST"
 if [ "$INSTALL_TOOL" -eq 1 ]; then
   echo "Installed htextract wrapper: $BIN_DIR/htextract"
+  echo "Installed training export wrapper: $BIN_DIR/htextract-training"
   echo "Installed skill helper wrapper: $BIN_DIR/agent-session-trajectory"
   case ":$PATH:" in
     *":$BIN_DIR:"*) ;;

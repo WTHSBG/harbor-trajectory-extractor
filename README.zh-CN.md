@@ -20,7 +20,7 @@ scripts/install-skill.sh
 
 - 将 `htextract` CLI 安装到 `./.venv`
 - 将 `skills/agent-session-trajectory` 软链到 `${CODEX_HOME:-~/.codex}/skills/agent-session-trajectory`
-- 将 wrapper 写入 `~/.local/bin/htextract` 和 `~/.local/bin/agent-session-trajectory`
+- 将 wrapper 写入 `~/.local/bin/htextract`、`~/.local/bin/htextract-training` 和 `~/.local/bin/agent-session-trajectory`
 
 如果想复制 skill 而不是创建软链，使用 `--copy`；如果要替换已有 skill，使用 `--force`；如果 `htextract` 已经安装好，使用 `--no-tool`。
 
@@ -38,6 +38,7 @@ agent-session-trajectory --help
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
 .venv/bin/htextract --help
+.venv/bin/htextract-training --help
 ```
 
 也可以激活 venv：
@@ -132,6 +133,63 @@ htextract --agent claude-code --source <session.jsonl> --summary
 ```bash
 htextract --agent codex --source <session.jsonl> --output /tmp/trajectory.json
 ```
+
+## 训练 Messages JSONL
+
+`htextract-training` 可以直接把原生会话整理成训练用 `messages` JSONL。目前支持：
+
+```text
+claude-code
+hermes
+kimi-code
+opencode
+```
+
+例如：
+
+```bash
+htextract-training \
+  --agent kimi-code \
+  --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> \
+  --output training.jsonl
+```
+
+输出每行是一条训练样本，包含 `system`、`user`、`assistant`、`tool` 消息；
+明文 thinking/reasoning 会写入 `reasoning_content`，工具调用和结果通过
+`id`/`tool_call_id` 精确配对。旁边还会生成 `training.jsonl.report.json`，记录
+样本类型、推理及工具覆盖、结构缺失、去重、超长过滤和警告信息。
+
+四种原生输入示例：
+
+```bash
+htextract-training --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --output claude-training.jsonl
+htextract-training --agent hermes --source ~/.hermes/state.db --session <sessionID> --output hermes-training.jsonl
+htextract-training --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> --output kimi-training.jsonl
+htextract-training --agent opencode --source ./opencode-export.json --output opencode-training.jsonl
+```
+
+Claude Code 的主会话会按 `compact_boundary` 分段；普通子 Agent 会独立导出，
+`agent-acompact-*` 会作为 `context_compaction` 样本保留。Kimi Code 会读取
+`agents/main` 和全部 `agents/agent-*` wire；遇到 `context.apply_compaction` 时，
+会分别生成压缩前样本、压缩摘要训练样本和用 `contextSummary` 重建的压缩后样本，
+避免把 compact 前后的上下文错误拼接。Hermes `state.db` 中通过
+`parent_session_id` 关联的后代 session 会作为子 Agent 样本导出；对于已经发生
+compact 的 Hermes session，只读取 `active=1` 的当前上下文，保留 compact 后的
+摘要，并排除 `compacted=1` 的旧消息，避免新旧上下文重复进入训练样本。
+
+对于 Claude Code 产生的 CyberGym 批量目录，也可以省略 `--agent`：
+
+```bash
+htextract-training --source <run 或 task 目录> --output training.jsonl
+```
+
+支持 `baiyansong`、`hanxueming`、`rujia` 三种目录布局以及自动识别。批量模式还支持
+`--success-only`、`--include-runtime-state` 和 `--drop-observer`。通用质量控制参数包括
+`--include-incomplete`、`--include-nonterminal-missing-tool-results` 和
+`--max-estimated-tokens N`。可用 `--system-prompt-file`、
+`--main-system-prompt-file`、`--subagent-system-prompt-file` 显式覆盖 prompt。
+
+Codex 仍支持 ATIF 轨迹导出，但本次训练 messages 入口不包含 Codex。
 
 ## Codex Skill
 

@@ -27,8 +27,8 @@ This does three things:
 - installs the `htextract` CLI into `./.venv`
 - symlinks `skills/agent-session-trajectory` into
   `${CODEX_HOME:-~/.codex}/skills/agent-session-trajectory`
-- writes wrappers to `~/.local/bin/htextract` and
-  `~/.local/bin/agent-session-trajectory`
+- writes wrappers to `~/.local/bin/htextract`, `~/.local/bin/htextract-training`,
+  and `~/.local/bin/agent-session-trajectory`
 
 Use `--copy` if you want to copy the skill instead of symlinking it, `--force`
 to replace an existing installed skill, or `--no-tool` if `htextract` is already
@@ -50,6 +50,7 @@ If you only want the trajectory extraction tool:
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
 .venv/bin/htextract --help
+.venv/bin/htextract-training --help
 ```
 
 You can also activate the venv:
@@ -146,6 +147,52 @@ Write to a specific file:
 ```bash
 htextract --agent codex --source <session.jsonl> --output /tmp/trajectory.json
 ```
+
+## Training Messages JSONL
+
+`htextract-training` compiles native sessions into tool-aware `messages` JSONL.
+The training exporter supports `claude-code`, `hermes`, `kimi-code`, and
+`opencode` (Codex remains available for ATIF export only).
+
+```bash
+htextract-training \
+  --agent kimi-code \
+  --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> \
+  --output training.jsonl
+```
+
+Each record contains `system`, `user`, `assistant`, and `tool` messages.
+Plaintext thinking/reasoning is preserved as `reasoning_content`, and tool calls
+and results retain matching `id`/`tool_call_id` values. A sibling
+`training.jsonl.report.json` records sample types, reasoning/tool coverage,
+structural gaps, deduplication, size filtering, and warnings.
+
+```bash
+htextract-training --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --output claude-training.jsonl
+htextract-training --agent hermes --source ~/.hermes/state.db --session <sessionID> --output hermes-training.jsonl
+htextract-training --agent kimi-code --source ~/.kimi-code/sessions/<wd_dir>/session_<uuid> --output kimi-training.jsonl
+htextract-training --agent opencode --source ./opencode-export.json --output opencode-training.jsonl
+```
+
+Claude Code main sessions are split at `compact_boundary`; ordinary subagents
+are exported independently and `agent-acompact-*` sessions become
+`context_compaction` samples. Kimi Code exports `agents/main` plus every
+`agents/agent-*` wire. Its `context.apply_compaction` events produce separate
+pre-compaction, compaction-summary, and rehydrated post-compaction samples, so
+contexts from opposite sides of a compact boundary are never concatenated.
+Hermes descendants linked by `parent_session_id` are emitted as subagent samples.
+For compacted Hermes sessions, only the current `active=1` context is read: the
+post-compaction summary is retained and stale `compacted=1` messages are excluded.
+
+For Claude Code CyberGym run directories, omit `--agent`:
+
+```bash
+htextract-training --source <run-or-task-directory> --output training.jsonl
+```
+
+The batch workflow auto-detects the `baiyansong`, `hanxueming`, and `rujia`
+layouts. Run `htextract-training --help` for success filtering, prompt overrides,
+runtime-state handling, incomplete-tool policies, and token limits.
 
 ## Codex Skill
 

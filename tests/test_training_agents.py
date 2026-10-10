@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import sqlite3
@@ -9,6 +10,10 @@ import unittest
 from pathlib import Path
 
 from harbor_trajectory_extractor.training_agents import export_agent_training_jsonl
+from harbor_trajectory_extractor.kimi_code_prompts import (
+    KIMI_CODE_0_41_0_COMPACTION_INSTRUCTION,
+    KIMI_CODE_0_41_0_COMPACTION_INSTRUCTION_SHA256,
+)
 from harbor_trajectory_extractor.training_claude import (
     export_claude_native_training_jsonl,
 )
@@ -124,6 +129,53 @@ class AgentTrainingExportTest(unittest.TestCase):
             self.assertEqual(assistant["tool_calls"][0]["id"], "Read:0")
             self.assertEqual(samples[0]["messages"][3]["tool_call_id"], "Read:0")
 
+    def test_kimi_exports_referenced_tool_snapshots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "session_kimi_tools"
+            root.mkdir(parents=True)
+            (root / "state.json").write_text(
+                json.dumps({"id": "session_kimi_tools", "agents": {"main": {}}}),
+                encoding="utf-8",
+            )
+            tools = [
+                {
+                    "name": "Read",
+                    "description": "Read a file.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}},
+                        "required": ["path"],
+                    },
+                }
+            ]
+            rows = kimi_wire("KIMI SYSTEM", "读取文件", "Read:tools")
+            rows[2:2] = [
+                {
+                    "type": "llm.tools_snapshot",
+                    "hash": "tools-hash",
+                    "tools": tools,
+                },
+                {
+                    "type": "llm.request",
+                    "kind": "loop",
+                    "toolsHash": "tools-hash",
+                },
+            ]
+            write_jsonl(root / "agents" / "main" / "wire.jsonl", rows)
+
+            output = Path(tmp) / "training.jsonl"
+            report = export_agent_training_jsonl(
+                agent="kimi-code", source=root, output=output
+            )
+            sample = json.loads(output.read_text().splitlines()[0])
+
+            self.assertEqual(sample["tools"], tools)
+            self.assertEqual(
+                sample["metadata"]["artifact"]["tool_snapshot_hashes"],
+                ["tools-hash"],
+            )
+            self.assertEqual(report.samples_with_tool_definitions, 1)
+
     def test_kimi_subagent_compaction_is_split_and_rehydrated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "session_kimi_compact"
@@ -206,10 +258,34 @@ class AgentTrainingExportTest(unittest.TestCase):
             )
             compact = samples[1]
             self.assertEqual(compact["messages"][-1]["content"], "精简后的接手笔记")
+            self.assertEqual(compact["messages"][-1]["role"], "assistant")
+            compact_assistant_roles = [
+                message["role"]
+                for message in compact["messages"]
+                if message["role"] in {"assistant", "masked_assistant"}
+            ]
+            self.assertGreater(len(compact_assistant_roles), 1)
+            self.assertEqual(compact_assistant_roles[-1], "assistant")
+            self.assertTrue(
+                all(
+                    role == "masked_assistant"
+                    for role in compact_assistant_roles[:-1]
+                )
+            )
+            self.assertEqual(
+                compact["messages"][-2]["content"],
+                KIMI_CODE_0_41_0_COMPACTION_INSTRUCTION,
+            )
+            self.assertEqual(
+                hashlib.sha256(
+                    compact["messages"][-2]["content"].encode()
+                ).hexdigest(),
+                KIMI_CODE_0_41_0_COMPACTION_INSTRUCTION_SHA256,
+            )
             self.assertEqual(compact["metadata"]["parent_agent_id"], "agent-1")
             self.assertEqual(
                 compact["metadata"]["artifact"]["compaction_request_source"],
-                "canonical-fallback",
+                "kimi-code-0.41.0-agent-core-v2-default-reconstructed",
             )
             post = samples[2]
             post_contents = [message.get("content", "") for message in post["messages"]]
@@ -261,6 +337,163 @@ class AgentTrainingExportTest(unittest.TestCase):
             self.assertEqual(sample["messages"][2]["reasoning_content"], "先看 README")
             self.assertEqual(sample["messages"][2]["tool_calls"][0]["id"], "call-1")
             self.assertEqual(sample["messages"][3]["tool_call_id"], "call-1")
+
+    def test_hermes_rewrites_reused_tool_call_ids_and_keeps_pairing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "hermes.jsonl"
+            session = {
+                "id": "hermes-duplicate-ids",
+                "system_prompt": "HERMES SYSTEM",
+                "messages": [
+                    {"role": "user", "content": "运行两次"},
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "terminal_1",
+                                "function": {
+                                    "name": "terminal",
+                                    "arguments": '{"command":"first"}',
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "tool_call_id": "terminal_1",
+                        "tool_name": "terminal",
+                        "content": "first result",
+                    },
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "terminal_1",
+                                "function": {
+                                    "name": "terminal",
+                                    "arguments": '{"command":"second"}',
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "tool_call_id": "terminal_1",
+                        "tool_name": "terminal",
+                        "content": "second result",
+                    },
+                    {"role": "assistant", "content": "完成。"},
+                ],
+            }
+            write_jsonl(source, [session])
+            output = Path(tmp) / "training.jsonl"
+
+            report = export_agent_training_jsonl(
+                agent="hermes", source=source, output=output
+            )
+            sample = json.loads(output.read_text().splitlines()[0])
+            calls = [
+                call
+                for message in sample["messages"]
+                for call in message.get("tool_calls", [])
+            ]
+            results = [
+                message
+                for message in sample["messages"]
+                if message.get("role") == "tool"
+            ]
+
+            self.assertEqual([call["id"] for call in calls], ["terminal_1", "terminal_1__dup2"])
+            self.assertEqual(
+                [message["tool_call_id"] for message in results],
+                ["terminal_1", "terminal_1__dup2"],
+            )
+            self.assertIn("first result", results[0]["content"])
+            self.assertIn("second result", results[1]["content"])
+            self.assertEqual(report.tool_call_ids_rewritten, 1)
+
+    def test_training_redacts_explicit_tokens_but_preserves_metrics_and_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "hermes.jsonl"
+            digest = "a" * 64
+            session = {
+                "id": "hermes-secrets",
+                "system_prompt": "HERMES SYSTEM",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": (
+                            "Authorization: Bearer top-secret\n"
+                            "if args.callback_token:\n"
+                            "callback_token=args.callback_token\n"
+                            '"callback_token":"RUN_CALLBACK_TOKEN"\n'
+                            "default password: admin"
+                        ),
+                    },
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "call-1",
+                                "function": {
+                                    "name": "submit",
+                                    "arguments": json.dumps(
+                                        {
+                                            "callback_token": "callback-secret",
+                                            "token_count": 123,
+                                            "source_sha256": digest,
+                                            "url": "https://HOST/run?token=query-secret&x=1",
+                                        }
+                                    ),
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "tool_call_id": "call-1",
+                        "tool_name": "submit",
+                        "content": '{"api_key":"api-secret","ok":true}',
+                    },
+                    {"role": "assistant", "content": "完成。"},
+                ],
+            }
+            write_jsonl(source, [session])
+            output = Path(tmp) / "training.jsonl"
+
+            report = export_agent_training_jsonl(
+                agent="hermes", source=source, output=output
+            )
+            text = output.read_text()
+            sample = json.loads(text.splitlines()[0])
+            arguments = sample["messages"][2]["tool_calls"][0]["arguments"]
+
+            self.assertNotIn("top-secret", text)
+            self.assertNotIn("callback-secret", text)
+            self.assertNotIn("query-secret", text)
+            self.assertNotIn("api-secret", text)
+            self.assertIn("if args.callback_token:", text)
+            self.assertIn("callback_token=args.callback_token", text)
+            self.assertIn("RUN_CALLBACK_TOKEN", text)
+            self.assertIn("default password: admin", text)
+            self.assertEqual(arguments["callback_token"], "[REDACTED]")
+            self.assertEqual(arguments["token_count"], 123)
+            self.assertEqual(arguments["source_sha256"], digest)
+            self.assertTrue(report.redaction_enabled)
+            self.assertGreaterEqual(report.redactions_applied, 4)
+
+            raw_output = Path(tmp) / "training-raw.jsonl"
+            raw_report = export_agent_training_jsonl(
+                agent="hermes",
+                source=source,
+                output=raw_output,
+                redact_secrets=False,
+            )
+            raw_text = raw_output.read_text()
+            self.assertIn("top-secret", raw_text)
+            self.assertIn("callback-secret", raw_text)
+            self.assertFalse(raw_report.redaction_enabled)
+            self.assertEqual(raw_report.redactions_applied, 0)
 
     def test_hermes_state_db_includes_descendant_subagents(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

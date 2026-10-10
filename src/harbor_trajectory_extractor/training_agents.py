@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 import tempfile
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -18,9 +19,12 @@ from harbor_trajectory_extractor.hermes import (
     locate_source as locate_hermes_source,
 )
 from harbor_trajectory_extractor.kimi_code import convert_session as convert_kimi_session
+from harbor_trajectory_extractor.kimi_code_prompts import (
+    KIMI_CODE_0_41_0_COMPACTION_INSTRUCTION,
+)
+from harbor_trajectory_extractor.redaction import redact_messages
 from harbor_trajectory_extractor.sources import PreparedSource, prepare_source
 from harbor_trajectory_extractor.training import (
-    estimate_tokens,
     has_missing_tool_result_followed_by_assistant,
     has_only_terminal_missing_tool_results,
     missing_tool_result_turns,
@@ -68,11 +72,16 @@ class AgentTrainingReport:
     context_compaction_samples_written: int = 0
     samples_with_reasoning: int = 0
     samples_with_tool_calls: int = 0
+    samples_with_tool_definitions: int = 0
     duplicate_samples_skipped: int = 0
     incomplete_samples_skipped: int = 0
     oversized_samples_skipped: int = 0
     terminal_tool_result_missing_samples_included: int = 0
     nonterminal_missing_tool_results_samples_included: int = 0
+    tool_call_ids_rewritten: int = 0
+    redaction_enabled: bool = True
+    redactions_applied: int = 0
+    redaction_categories: dict[str, int] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -89,6 +98,7 @@ class AgentTrainingReport:
             },
             "samples_with_reasoning": self.samples_with_reasoning,
             "samples_with_tool_calls": self.samples_with_tool_calls,
+            "samples_with_tool_definitions": self.samples_with_tool_definitions,
             "duplicate_samples_skipped": self.duplicate_samples_skipped,
             "incomplete_samples_skipped": self.incomplete_samples_skipped,
             "oversized_samples_skipped": self.oversized_samples_skipped,
@@ -98,6 +108,10 @@ class AgentTrainingReport:
             "nonterminal_missing_tool_results_samples_included": (
                 self.nonterminal_missing_tool_results_samples_included
             ),
+            "tool_call_ids_rewritten": self.tool_call_ids_rewritten,
+            "redaction_enabled": self.redaction_enabled,
+            "redactions_applied": self.redactions_applied,
+            "redaction_categories": self.redaction_categories,
             "warnings": self.warnings,
         }
 
@@ -165,6 +179,72 @@ def _read_jsonl_dicts(path: Path) -> list[dict[str, Any]]:
             if isinstance(value, dict):
                 events.append(value)
     return events
+
+
+def _kimi_tool_snapshots(
+    events: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    snapshots: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        if event.get("type") != "llm.tools_snapshot":
+            continue
+        snapshot_hash = event.get("hash")
+        raw_tools = event.get("tools")
+        if not isinstance(snapshot_hash, str) or not isinstance(raw_tools, list):
+            continue
+        snapshots[snapshot_hash] = [
+            dict(tool) for tool in raw_tools if isinstance(tool, dict)
+        ]
+    return snapshots
+
+
+def _kimi_tools_for_range(
+    events: list[dict[str, Any]],
+    *,
+    start: int,
+    end: int,
+    snapshots: dict[str, list[dict[str, Any]]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    snapshot_hashes: list[str] = []
+    for event in events[start:end]:
+        if event.get("type") != "llm.request":
+            continue
+        snapshot_hash = event.get("toolsHash")
+        if (
+            isinstance(snapshot_hash, str)
+            and snapshot_hash in snapshots
+            and snapshot_hash not in snapshot_hashes
+        ):
+            snapshot_hashes.append(snapshot_hash)
+
+    if not snapshot_hashes:
+        for event in reversed(events[:end]):
+            if event.get("type") != "llm.tools_snapshot":
+                continue
+            snapshot_hash = event.get("hash")
+            if isinstance(snapshot_hash, str) and snapshot_hash in snapshots:
+                snapshot_hashes.append(snapshot_hash)
+                break
+
+    merged: dict[str, dict[str, Any]] = {}
+    unnamed: list[dict[str, Any]] = []
+    for snapshot_hash in snapshot_hashes:
+        for tool in snapshots[snapshot_hash]:
+            name = tool.get("name")
+            if isinstance(name, str) and name:
+                merged[name] = dict(tool)
+            elif tool not in unnamed:
+                unnamed.append(dict(tool))
+    return [*merged.values(), *unnamed], snapshot_hashes
+
+
+def _set_trajectory_tools(
+    trajectory: dict[str, Any], tools: list[dict[str, Any]]
+) -> None:
+    agent = trajectory.get("agent")
+    agent = dict(agent) if isinstance(agent, dict) else {}
+    agent["tool_definitions"] = [dict(tool) for tool in tools]
+    trajectory["agent"] = agent
 
 
 def _convert_kimi_events(
@@ -243,6 +323,7 @@ def _load_kimi_artifacts(source: Path, model_name: str | None) -> list[Trajector
             else None
         )
         events = _read_jsonl_dicts(wire_path)
+        tool_snapshots = _kimi_tool_snapshots(events)
         boundaries = [
             index
             for index, event in enumerate(events)
@@ -262,6 +343,12 @@ def _load_kimi_artifacts(source: Path, model_name: str | None) -> list[Trajector
         current_context_steps: list[dict[str, Any]] = []
         all_user_steps: list[dict[str, Any]] = []
         for segment_index, (segment_start, segment_end, prior_boundary) in enumerate(ranges):
+            tools, tool_snapshot_hashes = _kimi_tools_for_range(
+                events,
+                start=segment_start,
+                end=segment_end,
+                snapshots=tool_snapshots,
+            )
             segment_trajectory = _convert_kimi_events(
                 events[segment_start:segment_end],
                 state_path=state_path if state_path.is_file() else None,
@@ -283,6 +370,8 @@ def _load_kimi_artifacts(source: Path, model_name: str | None) -> list[Trajector
                     for step in segment_trajectory.get("steps") or []
                     if isinstance(step, dict)
                 ]
+
+            _set_trajectory_tools(segment_trajectory, tools)
 
             prefix_steps: list[dict[str, Any]] = []
             if prior_boundary is not None:
@@ -323,6 +412,7 @@ def _load_kimi_artifacts(source: Path, model_name: str | None) -> list[Trajector
                         extra={
                             "segment_index": segment_index + 1,
                             "post_compaction": prior_boundary is not None,
+                            "tool_snapshot_hashes": tool_snapshot_hashes,
                         },
                     )
                 )
@@ -339,10 +429,7 @@ def _load_kimi_artifacts(source: Path, model_name: str | None) -> list[Trajector
                 [
                     {
                         "source": "user",
-                        "message": (
-                            "[CONTEXT_COMPACTION_REQUEST]\n"
-                            "Summarize the conversation state needed to continue the task."
-                        ),
+                        "message": KIMI_CODE_0_41_0_COMPACTION_INSTRUCTION,
                     },
                     {"source": "agent", "message": summary},
                 ]
@@ -357,7 +444,10 @@ def _load_kimi_artifacts(source: Path, model_name: str | None) -> list[Trajector
                     system_prompt_source="captured" if prompt else "fallback",
                     parent_agent_id=agent_id,
                     extra={
-                        "compaction_request_source": "canonical-fallback",
+                        "compaction_request_source": (
+                            "kimi-code-0.41.0-agent-core-v2-default-reconstructed"
+                        ),
+                        "tool_snapshot_hashes": tool_snapshot_hashes,
                         **_kimi_compaction_metadata(boundary),
                     },
                 )
@@ -534,19 +624,21 @@ def _prompt_from_trajectory(trajectory: dict[str, Any]) -> str | None:
     return None
 
 
-def _observation_by_call_id(step: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+def _observation_by_call_id(
+    step: dict[str, Any],
+) -> tuple[dict[str, deque[dict[str, Any]]], list[dict[str, Any]]]:
     observation = step.get("observation")
     observation = observation if isinstance(observation, dict) else {}
     results = observation.get("results")
     results = results if isinstance(results, list) else []
-    bound: dict[str, dict[str, Any]] = {}
+    bound: dict[str, deque[dict[str, Any]]] = defaultdict(deque)
     unbound: list[dict[str, Any]] = []
     for result in results:
         if not isinstance(result, dict):
             continue
         call_id = result.get("source_call_id")
         if isinstance(call_id, str) and call_id:
-            bound.setdefault(call_id, result)
+            bound[call_id].append(result)
         else:
             unbound.append(result)
     return bound, unbound
@@ -556,11 +648,14 @@ def trajectory_to_messages(
     trajectory: dict[str, Any],
     *,
     system_prompt: str,
+    conversion_stats: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt.strip()}
     ]
     prompt_consumed = False
+    used_call_ids: set[str] = set()
+    call_id_occurrences: dict[str, int] = {}
     for step in trajectory.get("steps") or []:
         if not isinstance(step, dict):
             continue
@@ -582,24 +677,43 @@ def trajectory_to_messages(
 
         raw_calls = step.get("tool_calls")
         raw_calls = raw_calls if isinstance(raw_calls, list) else []
-        calls: list[dict[str, Any]] = []
+        calls: list[tuple[str, dict[str, Any]]] = []
         for index, raw_call in enumerate(raw_calls):
             if not isinstance(raw_call, dict):
                 continue
             call_id = raw_call.get("tool_call_id") or raw_call.get("id")
-            call_id = str(call_id or f"tool-{step.get('step_id', 'unknown')}-{index}")
+            raw_call_id = str(
+                call_id or f"tool-{step.get('step_id', 'unknown')}-{index}"
+            )
+            occurrence = call_id_occurrences.get(raw_call_id, 0) + 1
+            call_id_occurrences[raw_call_id] = occurrence
+            canonical_call_id = raw_call_id
+            if canonical_call_id in used_call_ids:
+                canonical_call_id = f"{raw_call_id}__dup{occurrence}"
+                while canonical_call_id in used_call_ids:
+                    occurrence += 1
+                    call_id_occurrences[raw_call_id] = occurrence
+                    canonical_call_id = f"{raw_call_id}__dup{occurrence}"
+            used_call_ids.add(canonical_call_id)
+            if canonical_call_id != raw_call_id and conversion_stats is not None:
+                conversion_stats["tool_call_ids_rewritten"] = (
+                    conversion_stats.get("tool_call_ids_rewritten", 0) + 1
+                )
             calls.append(
-                {
-                    "id": call_id,
-                    "name": str(
-                        raw_call.get("function_name")
-                        or raw_call.get("name")
-                        or "unknown"
-                    ),
-                    "arguments": raw_call.get("arguments")
-                    if isinstance(raw_call.get("arguments"), dict)
-                    else {"value": raw_call.get("arguments")},
-                }
+                (
+                    raw_call_id,
+                    {
+                        "id": canonical_call_id,
+                        "name": str(
+                            raw_call.get("function_name")
+                            or raw_call.get("name")
+                            or "unknown"
+                        ),
+                        "arguments": raw_call.get("arguments")
+                        if isinstance(raw_call.get("arguments"), dict)
+                        else {"value": raw_call.get("arguments")},
+                    },
+                )
             )
 
         if calls and content in {"(tool use)", "(reasoning)"}:
@@ -609,15 +723,16 @@ def trajectory_to_messages(
         if isinstance(reasoning, str) and reasoning.strip():
             assistant["reasoning_content"] = reasoning.strip()
         if calls:
-            assistant["tool_calls"] = calls
+            assistant["tool_calls"] = [call for _, call in calls]
         if content or assistant.get("reasoning_content") or calls:
             messages.append(assistant)
 
         bound_results, unbound_results = _observation_by_call_id(step)
-        for call in calls:
-            result = bound_results.get(call["id"])
-            if result is None:
+        for raw_call_id, call in calls:
+            result_queue = bound_results.get(raw_call_id)
+            if not result_queue:
                 continue
+            result = result_queue.popleft()
             extra = result.get("extra")
             extra = extra if isinstance(extra, dict) else {}
             prefix = "ERROR" if extra.get("is_error") else "OBSERVATION"
@@ -649,12 +764,39 @@ def _sample_id(agent: str, artifact: TrajectoryArtifact) -> str:
 
 def _sample_digest(sample: dict[str, Any]) -> str:
     serialized = json.dumps(
-        {"sample_type": sample["sample_type"], "messages": sample["messages"]},
+        {
+            "sample_type": sample["sample_type"],
+            "tools": sample.get("tools", []),
+            "messages": sample["messages"],
+        },
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _estimate_sample_tokens(
+    messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+) -> int:
+    serialized = json.dumps(
+        {"tools": tools, "messages": messages},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    ascii_count = sum(ord(character) < 128 for character in serialized)
+    non_ascii_count = len(serialized) - ascii_count
+    return max(1, (ascii_count + 3) // 4 + non_ascii_count)
+
+
+def _mask_nonfinal_assistant_messages(messages: list[dict[str, Any]]) -> None:
+    assistant_indexes = [
+        index
+        for index, message in enumerate(messages)
+        if message.get("role") == "assistant"
+    ]
+    for index in assistant_indexes[:-1]:
+        messages[index]["role"] = "masked_assistant"
 
 
 def _write_jsonl(output: Path, samples: Iterable[dict[str, Any]]) -> None:
@@ -681,6 +823,7 @@ def export_agent_training_jsonl(
     include_incomplete: bool = False,
     include_nonterminal_missing_tool_results: bool = False,
     max_estimated_tokens: int | None = None,
+    redact_secrets: bool = True,
 ) -> AgentTrainingReport:
     normalized = normalize_agent_name(agent)
     source = source.resolve()
@@ -707,7 +850,11 @@ def export_agent_training_jsonl(
         instruction_path=instruction_path,
     )
     report = AgentTrainingReport(
-        source=str(source), output=str(output), agent=normalized, artifacts_seen=len(artifacts)
+        source=str(source),
+        output=str(output),
+        agent=normalized,
+        artifacts_seen=len(artifacts),
+        redaction_enabled=redact_secrets,
     )
     samples: list[dict[str, Any]] = []
     seen_digests: set[str] = set()
@@ -732,7 +879,22 @@ def export_agent_training_jsonl(
             if captured_prompt
             else "fallback"
         )
-        messages = trajectory_to_messages(artifact.trajectory, system_prompt=prompt)
+        conversion_stats: dict[str, int] = {}
+        messages = trajectory_to_messages(
+            artifact.trajectory,
+            system_prompt=prompt,
+            conversion_stats=conversion_stats,
+        )
+        report.tool_call_ids_rewritten += conversion_stats.get(
+            "tool_call_ids_rewritten", 0
+        )
+        if redact_secrets:
+            messages, redaction_stats = redact_messages(messages)
+            report.redactions_applied += redaction_stats.total
+            for category, count in redaction_stats.categories.items():
+                report.redaction_categories[category] = (
+                    report.redaction_categories.get(category, 0) + count
+                )
         if not any(message.get("role") == "assistant" for message in messages):
             report.incomplete_samples_skipped += 1
             continue
@@ -768,16 +930,25 @@ def export_agent_training_jsonl(
             report.incomplete_samples_skipped += 1
             continue
 
-        estimated_tokens = estimate_tokens(messages)
-        if max_estimated_tokens is not None and estimated_tokens > max_estimated_tokens:
-            report.oversized_samples_skipped += 1
-            continue
+        if artifact.sample_type == "context_compaction":
+            _mask_nonfinal_assistant_messages(messages)
 
         agent_info = artifact.trajectory.get("agent")
         agent_info = agent_info if isinstance(agent_info, dict) else {}
+        raw_tools = agent_info.get("tool_definitions")
+        tools = (
+            [dict(tool) for tool in raw_tools if isinstance(tool, dict)]
+            if isinstance(raw_tools, list)
+            else []
+        )
+        estimated_tokens = _estimate_sample_tokens(messages, tools)
+        if max_estimated_tokens is not None and estimated_tokens > max_estimated_tokens:
+            report.oversized_samples_skipped += 1
+            continue
         sample: dict[str, Any] = {
             "id": _sample_id(normalized, artifact),
             "sample_type": artifact.sample_type,
+            "tools": tools,
             "messages": messages,
             "metadata": {
                 "source_agent": normalized,
@@ -786,7 +957,9 @@ def export_agent_training_jsonl(
                 "parent_agent_id": artifact.parent_agent_id,
                 "model_name": agent_info.get("model_name"),
                 "system_prompt_source": prompt_source,
-                "system_prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+                "system_prompt_sha256": hashlib.sha256(
+                    str(messages[0].get("content") or "").encode("utf-8")
+                ).hexdigest(),
                 "reasoning_available": any(
                     bool(message.get("reasoning_content")) for message in messages
                 ),
@@ -818,6 +991,7 @@ def export_agent_training_jsonl(
     report.samples_with_tool_calls = sum(
         any(message.get("tool_calls") for message in s["messages"]) for s in samples
     )
+    report.samples_with_tool_definitions = sum(bool(s["tools"]) for s in samples)
     report_path = output.with_suffix(output.suffix + ".report.json")
     report_path.write_text(
         json.dumps(report.to_dict(), indent=2, ensure_ascii=False) + "\n",

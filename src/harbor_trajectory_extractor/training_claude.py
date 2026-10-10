@@ -107,6 +107,7 @@ def export_claude_native_training_jsonl(
     include_runtime_state: bool = False,
     drop_observer: bool = False,
     max_estimated_tokens: int | None = None,
+    redact_secrets: bool = True,
 ) -> ExportReport:
     source = source.resolve()
     cleanup, staged_source = _stage_native_session(source)
@@ -125,6 +126,7 @@ def export_claude_native_training_jsonl(
             include_runtime_state=include_runtime_state,
             drop_observer=drop_observer,
             max_estimated_tokens=max_estimated_tokens,
+            redact_secrets=redact_secrets,
         )
     finally:
         cleanup.cleanup()

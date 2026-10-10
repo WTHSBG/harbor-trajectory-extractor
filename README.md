@@ -161,11 +161,25 @@ htextract-training \
   --output training.jsonl
 ```
 
-Each record contains `system`, `user`, `assistant`, and `tool` messages.
+Each record contains a top-level `tools` array plus `system`, `user`,
+`assistant`, and `tool` messages. Kimi Code tool definitions are resolved from
+the `llm.tools_snapshot` hashes referenced by each segment; when a segment uses
+multiple snapshots, their definitions are merged and later definitions win by
+tool name.
 Plaintext thinking/reasoning is preserved as `reasoning_content`, and tool calls
-and results retain matching `id`/`tool_call_id` values. A sibling
+and results retain matching `id`/`tool_call_id` values. Reused source-side tool
+IDs are deterministically renamed (`<id>__dupN`) together with their matching
+results, so every `tool_call_id` is unique inside a sample.
+
+Explicit credential fields and credential syntax (for example
+`callback_token`, API keys, passwords in URL credentials, authorization headers, and token query
+parameters) are redacted from training output by default. Token-count metrics,
+hashes, and structural IDs are preserved. Use `--no-redact-secrets` only for a
+trusted local forensic export; ordinary ATIF extraction remains source-faithful.
+A sibling
 `training.jsonl.report.json` records sample types, reasoning/tool coverage,
-structural gaps, deduplication, size filtering, and warnings.
+structural gaps, rewritten tool IDs, redaction counts, deduplication, size
+filtering, and warnings.
 
 ```bash
 htextract-training --agent claude-code --source ~/.claude/projects/<project>/<session>.jsonl --output claude-training.jsonl
@@ -179,7 +193,13 @@ are exported independently and `agent-acompact-*` sessions become
 `context_compaction` samples. Kimi Code exports `agents/main` plus every
 `agents/agent-*` wire. Its `context.apply_compaction` events produce separate
 pre-compaction, compaction-summary, and rehydrated post-compaction samples, so
-contexts from opposite sides of a compact boundary are never concatenated.
+contexts from opposite sides of a compact boundary are never concatenated. The
+compaction-summary sample uses the rendered Kimi Code 0.41.0 agent-core-v2
+`compaction_instruction_default` rather than a shortened placeholder.
+In Kimi Code compaction-summary samples, earlier assistant messages use the
+`masked_assistant` role; only the final summary retains the `assistant` role.
+Training consumers must support this role and exclude those earlier messages
+from the training loss.
 Hermes descendants linked by `parent_session_id` are emitted as subagent samples.
 For compacted Hermes sessions, only the current `active=1` context is read: the
 post-compaction summary is retained and stale `compacted=1` messages are excluded.

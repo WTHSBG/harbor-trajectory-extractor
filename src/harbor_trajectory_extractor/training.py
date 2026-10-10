@@ -12,6 +12,7 @@ from .claude_code_prompts import (
     MAIN_SYSTEM_PROMPT,
     UNKNOWN_SUBAGENT_SYSTEM_PROMPT,
 )
+from .redaction import redact_messages
 
 
 SUCCESS_STATUSES = {"success"}
@@ -135,6 +136,9 @@ class ExportReport:
     duplicate_samples_skipped: int = 0
     incomplete_segments_skipped: int = 0
     oversized_segments_skipped: int = 0
+    redaction_enabled: bool = True
+    redactions_applied: int = 0
+    redaction_categories: dict[str, int] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -173,6 +177,9 @@ class ExportReport:
             "duplicate_samples_skipped": self.duplicate_samples_skipped,
             "incomplete_segments_skipped": self.incomplete_segments_skipped,
             "oversized_segments_skipped": self.oversized_segments_skipped,
+            "redaction_enabled": self.redaction_enabled,
+            "redactions_applied": self.redactions_applied,
+            "redaction_categories": self.redaction_categories,
             "warnings": self.warnings,
         }
 
@@ -1044,6 +1051,7 @@ def export_training_jsonl(
     include_runtime_state: bool = False,
     drop_observer: bool = False,
     max_estimated_tokens: int | None = None,
+    redact_secrets: bool = True,
 ) -> ExportReport:
     source = source.resolve()
     output = output.resolve()
@@ -1080,6 +1088,7 @@ def export_training_jsonl(
             resolved_subagent_prompt.encode("utf-8")
         ).hexdigest(),
         runtime_state_included=include_runtime_state,
+        redaction_enabled=redact_secrets,
     )
     samples: list[dict[str, Any]] = []
     seen_digests: set[str] = set()
@@ -1120,6 +1129,13 @@ def export_training_jsonl(
                     runtime_state=_runtime_state_for_segment(runtime_states, segment_index),
                     drop_observer=drop_observer,
                 )
+                if redact_secrets:
+                    messages, redaction_stats = redact_messages(messages)
+                    report.redactions_applied += redaction_stats.total
+                    for category, count in redaction_stats.categories.items():
+                        report.redaction_categories[category] = (
+                            report.redaction_categories.get(category, 0) + count
+                        )
                 if warnings:
                     report.warnings.append(
                         f"{artifact.session_path}: segment {segment_index + 1} orphan tool results: "
@@ -1196,7 +1212,7 @@ def export_training_jsonl(
                             else "builtin"
                         ),
                         "system_prompt_sha256": hashlib.sha256(
-                            artifact_system_prompt.encode("utf-8")
+                            str(messages[0].get("content") or "").encode("utf-8")
                         ).hexdigest(),
                         "reasoning_available": any(
                             bool(message.get("reasoning_content"))

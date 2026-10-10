@@ -154,10 +154,19 @@ htextract-training \
   --output training.jsonl
 ```
 
-输出每行是一条训练样本，包含 `system`、`user`、`assistant`、`tool` 消息；
+输出每行是一条训练样本，顶层包含 `tools` 工具定义数组，以及 `system`、`user`、
+`assistant`、`tool` 消息。Kimi Code 会按每个分段实际引用的
+`llm.tools_snapshot` 哈希还原工具定义；同一分段引用多个快照时按工具名合并，后出现的
+定义覆盖旧定义。
 明文 thinking/reasoning 会写入 `reasoning_content`，工具调用和结果通过
-`id`/`tool_call_id` 精确配对。旁边还会生成 `training.jsonl.report.json`，记录
-样本类型、推理及工具覆盖、结构缺失、去重、超长过滤和警告信息。
+`id`/`tool_call_id` 精确配对。源会话重复使用工具调用 ID 时，导出器会按出现顺序
+稳定改写为 `<id>__dupN`，并同步改写对应结果，保证单条样本内 ID 唯一。
+
+训练导出默认脱敏明确的凭据字段和凭据语法，包括 `callback_token`、API Key、
+URL 凭据中的密码、Authorization Header 及 URL token 参数；令牌计数、哈希和结构 ID 不受影响。
+只有在可信本地取证场景才应使用 `--no-redact-secrets` 保留原值；普通 ATIF 导出仍
+保持源数据原貌。旁边生成的 `training.jsonl.report.json` 会记录样本类型、推理及
+工具覆盖、结构缺失、工具 ID 改写数、脱敏数、去重、超长过滤和警告信息。
 
 四种原生输入示例：
 
@@ -172,7 +181,12 @@ Claude Code 的主会话会按 `compact_boundary` 分段；普通子 Agent 会�
 `agent-acompact-*` 会作为 `context_compaction` 样本保留。Kimi Code 会读取
 `agents/main` 和全部 `agents/agent-*` wire；遇到 `context.apply_compaction` 时，
 会分别生成压缩前样本、压缩摘要训练样本和用 `contextSummary` 重建的压缩后样本，
-避免把 compact 前后的上下文错误拼接。Hermes `state.db` 中通过
+避免把 compact 前后的上下文错误拼接。压缩摘要训练样本使用 Kimi Code 0.41.0
+agent-core-v2 渲染后的真实 `compaction_instruction_default`，不再使用简化占位内容。
+Kimi Code 压缩摘要样本中，此前的 assistant 消息使用 `masked_assistant` 角色，
+只有最终摘要保留 `assistant` 角色；训练端需要支持该角色，并将此前消息排除在
+训练损失之外。
+Hermes `state.db` 中通过
 `parent_session_id` 关联的后代 session 会作为子 Agent 样本导出；对于已经发生
 compact 的 Hermes session，只读取 `active=1` 的当前上下文，保留 compact 后的
 摘要，并排除 `compacted=1` 的旧消息，避免新旧上下文重复进入训练样本。

@@ -103,6 +103,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Instruction file for native adapters whose capture omits the user prompt",
     )
+    parser.add_argument(
+        "--no-redact-secrets",
+        action="store_false",
+        dest="redact_secrets",
+        help=(
+            "Preserve explicit credential values in training output. Secret "
+            "redaction is enabled by default; only disable it for trusted local use."
+        ),
+    )
     return parser
 
 
@@ -141,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_runtime_state=args.include_runtime_state,
                 drop_observer=args.drop_observer,
                 max_estimated_tokens=args.max_estimated_tokens,
+                redact_secrets=args.redact_secrets,
             )
         elif agent == "claude-code":
             if args.success_only:
@@ -160,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_runtime_state=args.include_runtime_state,
                 drop_observer=args.drop_observer,
                 max_estimated_tokens=args.max_estimated_tokens,
+                redact_secrets=args.redact_secrets,
             )
         else:
             if agent is None:
@@ -192,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.include_nonterminal_missing_tool_results
                 ),
                 max_estimated_tokens=args.max_estimated_tokens,
+                redact_secrets=args.redact_secrets,
             )
     except (OSError, ValueError) as exc:
         print(exc, file=sys.stderr)
